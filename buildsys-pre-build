@@ -1,0 +1,49 @@
+#!/usr/bin/env python2
+import subprocess
+import contextlib
+import os.path
+
+
+@contextlib.contextmanager
+def _rpmmacros_file_patched():
+    path = os.path.expanduser("~/.rpmmacros")
+    with open(path, "r") as f:
+        content = f.read()
+    with open(path, "w") as f:
+        for line in content.splitlines():
+            if line.startswith("%_rpmfilename"):
+                line = "%_rpmfilename %{_build_name_fmt}"
+            f.write(line + "\n")
+    try:
+        yield
+    finally:
+        with open(path, "w") as f:
+            f.write(content)
+
+
+def _main():
+    # NOTE: For reasons unknown, the Build System clones repository under 'mockbuild' user
+    #       but executes 'buildsys-pre-build' script as 'root'. As 'buildsys-pre-build' script
+    #       invokes Makefile, which in turn invokes 'git archive' command, the latter fails due
+    #       to 'dubious ownership' error. This hack sidesteps the problem but should be fixed on
+    #       the side of Build System in the long run.
+    subprocess.call("git config --global --add safe.directory /srv/pre_build".split())
+    # NOTE: CloudLinux Build System redefines some macros, including %_rpmfilename.
+    #       This makes an upstream Makefile target "sources" to fail as it expects that
+    #       RPMs are sorted into directories with names corresponding to architectures.
+    #       This patch makes the build system to temporary use the default value of %_rpmfilename
+    #       when Makefile is executed, while reverting it back for rpmbuild invocation from inside
+    #       the Build System.
+    with _rpmmacros_file_patched():
+        subprocess.call("make srpm".split())
+    # NOTE: I wasn't able to make the Build System look for tarballs inside of custom directory
+    #       (_sourcedir macro redefinition led to some whired permission problems) so let's just
+    #       unpack everythin into the root of the repository.
+    subprocess.call("""rpm2cpio `find . -name "leapp-repository-*.src.rpm" -print -quit` | cpio -idv""", shell=True)
+
+
+if __name__ == "__main__":
+    # NOTE(zeronineseven): The grand idea behind this script is to delegate all the heavy lifting
+    #                      to an upstream Makefile, which gives us ready-made SRPM back and then
+    #                      simply unpack it so that the Build System can pick from there.
+    _main()
