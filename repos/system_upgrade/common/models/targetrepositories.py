@@ -21,6 +21,12 @@ class CustomTargetRepository(TargetRepositoryBase):
     enabled = fields.Boolean(default=True)
 
 
+class VendorCustomTargetRepositoryList(Model):
+    topic = TransactionTopic
+    vendor = fields.String()
+    repos = fields.List(fields.Model(CustomTargetRepository))
+
+
 class TargetRepositories(Model):
     """
     Repositories supposed to be used during the IPU process

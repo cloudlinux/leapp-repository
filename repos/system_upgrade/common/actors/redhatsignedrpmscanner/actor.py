@@ -1,44 +1,65 @@
 from leapp.actors import Actor
 from leapp.libraries.common import rhui
-from leapp.models import InstalledRedHatSignedRPM, InstalledRPM, InstalledUnsignedRPM
+from leapp.models import InstalledRedHatSignedRPM, InstalledRPM, InstalledUnsignedRPM, VendorSignatures
 from leapp.tags import FactsPhaseTag, IPUWorkflowTag
 
 
+VENDOR_SIGS = {
+    'rhel': ['199e2f91fd431d51',
+             '5326810137017186',
+             '938a80caf21541eb',
+             'fd372689897da07a',
+             '45689c882fa658e0'],
+    'centos': ['24c6a8a7f4a80eb5',
+               '05b555b38483c65d',
+               '4eb84e71f2ee9d55',
+               'a963bbdbf533f4fa',
+               '6c7cb6ef305d49d6'],
+    'almalinux': ['51d6647ec21ad6ea',
+                  'd36cb86cb86b3716'],
+    'rocky': ['15af5dac6d745a60',
+              '702d426d350d275d'],
+    'ol': ['72f97b74ec551f03',
+           '82562ea9ad986da3',
+           'bc4d06a08d8b756f'],
+    'eurolinux': ['75c333f418cd4a9e',
+                  'b413acad6275f250',
+                  'f7ad3e5a1c9fd080'],
+    'scientific': ['b0b4183f192a7d7d']
+}
+
+VENDOR_PACKAGERS = {
+    "rhel": "Red Hat, Inc.",
+    "centos": "CentOS",
+    "almalinux": "AlmaLinux Packaging Team",
+    "rocky": "infrastructure@rockylinux.org",
+    "eurolinux": "EuroLinux",
+    "scientific": "Scientific Linux",
+}
+
+
 class RedHatSignedRpmScanner(Actor):
-    """Provide data about installed RPM Packages signed by Red Hat.
+    """Provide data about installed RPM Packages signed by vendors.
+
+    The "Red Hat" in the name of the actor is a historical artifact - the actor
+    is used for all vendors present in the config.
 
     After filtering the list of installed RPM packages by signature, a message
     with relevant data will be produced.
     """
 
     name = 'red_hat_signed_rpm_scanner'
-    consumes = (InstalledRPM,)
+    consumes = (InstalledRPM, VendorSignatures)
     produces = (InstalledRedHatSignedRPM, InstalledUnsignedRPM,)
     tags = (IPUWorkflowTag, FactsPhaseTag)
 
     def process(self):
-        RH_SIGS = ['199e2f91fd431d51', # rhel
-                   '5326810137017186',
-                   '938a80caf21541eb',
-                   'fd372689897da07a',
-                   '45689c882fa658e0',
-                   '24c6a8a7f4a80eb5', # centos
-                   '05b555b38483c65d',
-                   '4eb84e71f2ee9d55',
-                   'a963bbdbf533f4fa',
-                   '6c7cb6ef305d49d6',
-                   '51d6647ec21ad6ea', # almalinux
-                   'd36cb86cb86b3716',
-                   '2ae81e8aced7258b',
-                   '15af5dac6d745a60', # rockylinux
-                   '702d426d350d275d',
-                   '72f97b74ec551f03', # ol
-                   '82562ea9ad986da3',
-                   'bc4d06a08d8b756f',
-                   '75c333f418cd4a9e', # eurolinux
-                   'b413acad6275f250',
-                   'f7ad3e5a1c9fd080',
-                   'b0b4183f192a7d7d'] # scientific
+        # Packages from multiple vendors can be installed on the system.
+        # Picking the vendor based on the OS release is not enough.
+        vendor_keys = sum(VENDOR_SIGS.values(), [])
+
+        for siglist in self.consume(VendorSignatures):
+            vendor_keys.extend(siglist.sigs)
 
         signed_pkgs = InstalledRedHatSignedRPM()
         unsigned_pkgs = InstalledUnsignedRPM()
@@ -52,8 +73,8 @@ class RedHatSignedRpmScanner(Actor):
             if env.name == 'LEAPP_DEVEL_RPMS_ALL_SIGNED' and env.value == '1'
         ]
 
-        def has_rhsig(pkg):
-            return any(key in pkg.pgpsig for key in RH_SIGS)
+        def has_vendorsig(pkg):
+            return any(key in pkg.pgpsig for key in vendor_keys)
 
         def is_gpg_pubkey(pkg):
             """Check if gpg-pubkey pkg exists or LEAPP_DEVEL_RPMS_ALL_SIGNED=1
@@ -61,15 +82,9 @@ class RedHatSignedRpmScanner(Actor):
             gpg-pubkey is not signed as it would require another package
             to verify its signature
             """
-            return (    # pylint: disable-msg=consider-using-ternary
-                    pkg.name == 'gpg-pubkey'
-                    and (pkg.packager.startswith('Red Hat, Inc.')
-                    or pkg.packager.startswith('CentOS')
-                    or pkg.packager.startswith('AlmaLinux')
-                    or pkg.packager.startswith('infrastructure@rockylinux.org')
-                    or pkg.packager.startswith('EuroLinux')
-                    or pkg.packager.startswith('Scientific Linux'))
-                    or all_signed
+            return (  # pylint: disable-msg=consider-using-ternary
+                pkg.name == "gpg-pubkey"
+                or all_signed
             )
 
         def has_katello_prefix(pkg):
@@ -101,7 +116,7 @@ class RedHatSignedRpmScanner(Actor):
             for pkg in rpm_pkgs.items:
                 if any(
                     [
-                        has_rhsig(pkg),
+                        has_vendorsig(pkg),
                         is_gpg_pubkey(pkg),
                         has_katello_prefix(pkg),
                         pkg.name in whitelisted_cloud_pkgs,

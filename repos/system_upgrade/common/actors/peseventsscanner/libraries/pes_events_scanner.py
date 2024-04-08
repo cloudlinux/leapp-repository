@@ -1,5 +1,6 @@
 from collections import defaultdict, namedtuple
 from functools import partial
+import os
 
 from leapp import reporting
 from leapp.exceptions import StopActorExecutionError
@@ -19,7 +20,8 @@ from leapp.models import (
     RepositoriesMapping,
     RepositoriesSetupTasks,
     RHUIInfo,
-    RpmTransactionTasks
+    RpmTransactionTasks,
+    ActiveVendorList,
 )
 
 SKIPPED_PKGS_MSG = (
@@ -30,6 +32,7 @@ SKIPPED_PKGS_MSG = (
     'for details.\nThe list of these packages:'
 )
 
+VENDORS_DIR = "/etc/leapp/files/vendors.d"
 
 TransactionConfiguration = namedtuple('TransactionConfiguration', ('to_install', 'to_remove', 'to_keep'))
 
@@ -484,6 +487,19 @@ def process():
     events = get_pes_events('/etc/leapp/files', 'pes-events.json')
     if not events:
         return
+
+    active_vendors = []
+    for vendor_list in api.consume(ActiveVendorList):
+        active_vendors.extend(vendor_list.data)
+
+    pes_json_suffix = "_pes.json"
+    if os.path.isdir(VENDORS_DIR):
+        vendor_pesfiles = list(filter(lambda vfile: pes_json_suffix in vfile, os.listdir(VENDORS_DIR)))
+
+        for pesfile in vendor_pesfiles:
+            if pesfile[:-len(pes_json_suffix)] in active_vendors:
+                vendor_events = get_pes_events(VENDORS_DIR, pesfile)
+                events.extend(vendor_events)
 
     releases = get_relevant_releases(events)
     source_pkgs = get_installed_pkgs()
