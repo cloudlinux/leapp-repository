@@ -10,7 +10,8 @@ from leapp.models import (
     RepositoriesMapping,
     RepositoriesSetupTasks,
     RHUIInfo,
-    RpmTransactionTasks
+    RpmTransactionTasks,
+    ActiveVendorList,
 )
 from leapp.reporting import Report
 from leapp.tags import FactsPhaseTag, IPUWorkflowTag
@@ -33,6 +34,7 @@ class PesEventsScanner(Actor):
         RepositoriesMapping,
         RHUIInfo,
         RpmTransactionTasks,
+        ActiveVendorList,
     )
     produces = (ConsumedDataAsset, PESRpmTransactionTasks, RepositoriesSetupTasks, Report)
     tags = (IPUWorkflowTag, FactsPhaseTag)
