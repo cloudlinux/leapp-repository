@@ -1,9 +1,9 @@
 import os
 import json
 
-from leapp.libraries.actor import repositoriesmapping
 from leapp.libraries.common import fetch
 from leapp.libraries.common.config.version import get_target_major_version, get_source_major_version
+from leapp.libraries.common.repomaputils import RepoMapData
 from leapp.libraries.stdlib import api
 from leapp.models import VendorSourceRepos, RepositoriesMapping
 from leapp.models.fields import ModelViolationError
@@ -34,7 +34,7 @@ def read_repofile(repofile, repodir):
 def read_repomap_file(repomap_file, read_repofile_func, vendor_name):
     json_data = read_repofile_func(repomap_file, VENDORS_DIR)
     try:
-        repomap_data = repositoriesmapping.RepoMapData.load_from_dict(json_data)
+        repomap_data = RepoMapData.load_from_dict(json_data)
 
         source_major = get_source_major_version()
         target_major = get_target_major_version()
