@@ -1,4 +1,4 @@
-from collections import defaultdict
+﻿from collections import defaultdict
 from leapp.models import PESIDRepositoryEntry, RepoMapEntry
 
 
@@ -34,6 +34,12 @@ class RepoMapData(object):
         Return the list of PESIDRepositoryEntry object matching the specified major versions.
         """
         return [repo for repo in self.repositories if repo.major_version in valid_major_versions]
+
+    def get_version_repoids(self, major_version):
+        """
+        Return the list of repository ID strings for repositories matching the specified major version.
+        """
+        return [repo.repoid for repo in self.repositories if repo.major_version == major_version]
 
     def add_mapping(self, source_major_version, target_major_version, source_pesid, target_pesid):
         """
