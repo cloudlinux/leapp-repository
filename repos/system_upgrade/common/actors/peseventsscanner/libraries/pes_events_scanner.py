@@ -7,6 +7,7 @@ from leapp.exceptions import StopActorExecutionError
 from leapp.libraries.actor import peseventsscanner_repomap
 from leapp.libraries.actor.pes_event_parsing import Action, get_pes_events, Package
 from leapp.libraries.common.config import version
+from leapp.libraries.common.repomaputils import combine_repomap_messages
 from leapp.libraries.stdlib import api
 from leapp.libraries.stdlib.config import is_verbose
 from leapp.models import (
@@ -348,15 +349,13 @@ def get_pesid_to_repoid_map(target_pesids):
     :return: Dictionary mapping the target_pesids to their corresponding repoid
     """
 
-    repositories_map_msgs = api.consume(RepositoriesMapping)
-    repositories_map_msg = next(repositories_map_msgs, None)
-    if list(repositories_map_msgs):
-        api.current_logger().warning('Unexpectedly received more than one RepositoriesMapping message.')
-    if not repositories_map_msg:
+    repositories_map_msgs = list(api.consume(RepositoriesMapping))
+    if not repositories_map_msgs:
         raise StopActorExecutionError(
             'Cannot parse RepositoriesMapping data properly',
             details={'Problem': 'Did not receive a message with mapped repositories'}
         )
+    repositories_map_msg = combine_repomap_messages(repositories_map_msgs)
 
     rhui_info = next(api.consume(RHUIInfo), RHUIInfo(provider=''))
 

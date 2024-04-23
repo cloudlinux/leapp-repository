@@ -1,6 +1,7 @@
 
 from leapp.libraries.actor import setuptargetrepos_repomap
 from leapp.libraries.common.config.version import get_source_major_version
+from leapp.libraries.common.repomaputils import combine_repomap_messages
 from leapp.libraries.stdlib import api
 from leapp.models import (
     CustomTargetRepository,
@@ -67,26 +68,6 @@ def _get_used_repo_dict():
     return used
 
 
-def _combine_repomap_messages(mapping_list):
-    """
-    Combine multiple repository mapping messages into one.
-    Needed because we might get more than one message if there are vendors present.
-    """
-    combined_mapping = []
-    combined_repositories = []
-    # Depending on whether there are any vendors present, we might get more than one message.
-    for msg in mapping_list:
-        combined_mapping.extend(msg.mapping)
-        combined_repositories.extend(msg.repositories)
-
-    combined_repomapping = RepositoriesMapping(
-        mapping=combined_mapping,
-        repositories=combined_repositories
-    )
-
-    return combined_repomapping
-
-
 def _get_mapped_repoids(repomap, src_repoids):
     mapped_repoids = set()
     src_maj_ver = get_source_major_version()
@@ -149,9 +130,12 @@ def process():
     vendor_repos = _get_vendor_custom_repos(enabled_repoids, repo_mapping_list)
     custom_repos.extend(vendor_repos)
 
+    api.current_logger().debug(
+        "Vendor repolist: {}".format([repo.repoid for repo in vendor_repos])
+    )
 
     # Setup repomap handler
-    repo_mappig_msg = _combine_repomap_messages(repo_mapping_list)
+    repo_mappig_msg = combine_repomap_messages(repo_mapping_list)
     rhui_info = next(api.consume(RHUIInfo), RHUIInfo(provider=''))
     repomap = setuptargetrepos_repomap.RepoMapDataHandler(repo_mappig_msg, cloud_provider=rhui_info.provider)
 
@@ -206,6 +190,10 @@ def process():
     rhel_repos = [RHELTargetRepository(repoid=repoid) for repoid in sorted(target_rhel_repoids)]
     custom_repos = [repo for repo in custom_repos if repo.repoid not in excluded_repoids]
     custom_repos = sorted(custom_repos, key=lambda x: x.repoid)
+
+    api.current_logger().debug(
+        "Final repolist: {}".format([repo.repoid for repo in custom_repos])
+    )
 
     # produce message about skipped repositories
     enabled_repoids_with_mapping = _get_mapped_repoids(repomap, enabled_repoids)

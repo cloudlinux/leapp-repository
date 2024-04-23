@@ -1,6 +1,5 @@
 ﻿from collections import defaultdict
-from leapp.models import PESIDRepositoryEntry, RepoMapEntry
-
+from leapp.models import PESIDRepositoryEntry, RepoMapEntry, RepositoriesMapping
 
 class RepoMapData(object):
     VERSION_FORMAT = '1.2.0'
@@ -120,3 +119,22 @@ class RepoMapData(object):
                     target_pesid=entry['target'],
                 )
         return repomap
+
+def combine_repomap_messages(mapping_list):
+    """
+    Combine multiple RepositoryMapping messages into one.
+    Needed because we might get more than one message if there are vendors present.
+    """
+    combined_mapping = []
+    combined_repositories = []
+    # Depending on whether there are any vendors present, we might get more than one message.
+    for msg in mapping_list:
+        combined_mapping.extend(msg.mapping)
+        combined_repositories.extend(msg.repositories)
+
+    combined_repomapping = RepositoriesMapping(
+        mapping=combined_mapping,
+        repositories=combined_repositories
+    )
+
+    return combined_repomapping
