@@ -142,7 +142,8 @@ def load_data_asset(actor_requesting_asset,
                     asset_filename,
                     asset_fulltext_name,
                     docs_url,
-                    docs_title):
+                    docs_title,
+                    asset_directory="/etc/leapp/files"):
     """
     Load the content of the data asset with given asset_filename
 
@@ -174,7 +175,7 @@ def load_data_asset(actor_requesting_asset,
 
     try:
         # The asset family ID has the form (major, minor), include only `major` in the URL
-        raw_asset_contents = read_or_fetch(asset_filename, data_stream=data_stream_major)
+        raw_asset_contents = read_or_fetch(asset_filename, directory=asset_directory, data_stream=data_stream_major)
         asset_contents = json.loads(raw_asset_contents)
     except ValueError:
         msg = 'The {0} file (at {1}) does not contain a valid JSON object.'.format(asset_fulltext_name, asset_filename)
