@@ -69,6 +69,7 @@ def get_pes_events(pes_json_directory, pes_json_filename):
     try:
         events_data = fetch.load_data_asset(api.current_actor(),
                                             pes_json_filename,
+                                            asset_directory=pes_json_directory,
                                             asset_fulltext_name='PES events file',
                                             docs_url='',
                                             docs_title='')
