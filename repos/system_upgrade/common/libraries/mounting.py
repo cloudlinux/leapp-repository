@@ -33,6 +33,16 @@ class MountingMode(object):
     """ Used when no actual mount call needs to be issued """
 
 
+class MountingPropagation(object):
+    """
+    MountingPropagation are types of mounts propagation supported by the library
+    """
+    PRIVATE = 'private'
+    """ Used for private propagation mounts """
+    SHARED = 'shared'
+    """ Used for shared propagation mounts """
+
+
 def _makedirs(path, mode=0o777, exists_ok=True):
     """ Helper function which extends os.makedirs with exists_ok on all versions of python. """
     try:
@@ -293,11 +303,14 @@ class MountConfig(object):
 class MountingBase(object):
     """ Base class for all mount operations """
 
-    def __init__(self, source, target, mode, config=MountConfig.Mount):
+    def __init__(self, source, target, mode,
+                 config=MountConfig.Mount,
+                 propagation=MountingPropagation.SHARED):
         self._mode = mode
         self.source = source
         self.target = target
         self._config = config
+        self.propagation = propagation
         self.additional_directories = ()
 
     def _mount_options(self):
@@ -305,7 +318,17 @@ class MountingBase(object):
         Options to use with the mount call, individual implementations may override this function to return the
         correct parameters
         """
-        return ['-o', self._mode, self.source]
+        return [
+            '-o', self._mode,
+            '--make-' + self.propagation,
+            self.source
+        ]
+
+    def _umount_options(self):
+        """
+        Options to use with the umount call.
+        """
+        return ['-fl']
 
     def chroot(self):
         """ Create a ChrootActions instance for this mount """
@@ -323,7 +346,7 @@ class MountingBase(object):
         """ Cleanup operations """
         if os.path.exists(self.target) and os.path.ismount(self.target):
             try:
-                run(['umount', '-fl', self.target], split=False)
+                run(['umount'] + self._umount_options() + [self.target], split=False)
             except (OSError, CalledProcessError) as e:
                 api.current_logger().warning('Unmounting %s failed with: %s', self.target, str(e))
         for directory in itertools.chain(self.additional_directories, (self.target,)):
@@ -404,6 +427,7 @@ class TypedMount(MountingBase):
     def _mount_options(self):
         return [
             '-t', self.fstype,
+            '--make-' + self.propagation,
             self.source
         ]
 
@@ -421,5 +445,6 @@ class OverlayMount(MountingBase):
     def _mount_options(self):
         return [
             '-t', 'overlay', 'overlay2',
+            '--make-' + self.propagation,
             '-o', 'lowerdir={},upperdir={},workdir={}'.format(self.source, self._upper_dir, self._work_dir)
         ]

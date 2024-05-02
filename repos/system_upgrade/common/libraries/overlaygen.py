@@ -222,6 +222,12 @@ def create_source_overlay(mounts_dir, scratch_dir, xfs_info, storage_info, mount
         _create_mounts_dir(scratch_dir, mounts_dir)
         mounts = _prepare_required_mounts(scratch_dir, mounts_dir, _get_mountpoints(storage_info), xfs_info)
         with mounts.pop('/') as root_mount:
+            # it's important to make system_overlay shared because we
+            # later mount it into mount_target with some tricky way:
+            #  1. create system_overlay mount
+            #  2. mount system_overlay to mount_target (e.g. installroot)
+            #  3. mount other mounts like /tmp, /usr inside system_overlay
+            # if at stage 3 system_overlay is not shared, mounts will not appear in `mount_target`
             with mounting.OverlayMount(name='system_overlay', source='/', workdir=root_mount.target) as root_overlay:
                 if mount_target:
                     target = mounting.BindMount(source=root_overlay.target, target=mount_target)
