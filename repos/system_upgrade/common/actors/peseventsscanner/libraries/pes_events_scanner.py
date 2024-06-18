@@ -35,7 +35,7 @@ SKIPPED_PKGS_MSG = (
 
 VENDORS_DIR = "/etc/leapp/files/vendors.d"
 
-TransactionConfiguration = namedtuple('TransactionConfiguration', ('to_install', 'to_remove', 'to_keep'))
+TransactionConfiguration = namedtuple('TransactionConfiguration', ('to_install', 'to_remove', 'to_keep', 'to_reinstall'))
 
 
 def get_cloud_provider_name(cloud_provider_variant):
@@ -86,7 +86,7 @@ def get_transaction_configuration():
     These configuration files have higher priority than PES data.
     :return: RpmTransactionTasks model instance
     """
-    transaction_configuration = TransactionConfiguration(to_install=[], to_remove=[], to_keep=[])
+    transaction_configuration = TransactionConfiguration(to_install=[], to_remove=[], to_keep=[], to_reinstall=[])
 
     _Pkg = partial(Package, repository=None, modulestream=None)
 
@@ -94,6 +94,7 @@ def get_transaction_configuration():
         transaction_configuration.to_install.extend(_Pkg(name=pkg_name) for pkg_name in tasks.to_install)
         transaction_configuration.to_remove.extend(_Pkg(name=pkg_name) for pkg_name in tasks.to_remove)
         transaction_configuration.to_keep.extend(_Pkg(name=pkg_name) for pkg_name in tasks.to_keep)
+        transaction_configuration.to_reinstall.extend(_Pkg(name=pkg_name) for pkg_name in tasks.to_reinstall)
     return transaction_configuration
 
 
@@ -518,7 +519,6 @@ def process():
     events = remove_undesired_events(events, releases)
 
     # Apply events - compute what packages should the target system have
-    # TODO: bring back the reinstallation of packages
     target_pkgs, pkgs_to_demodularize, pkgs_to_reinstall = compute_packages_on_target_system(source_pkgs, events, releases)
 
     # Packages coming out of the events have PESID as their repository, however, we need real repoid
