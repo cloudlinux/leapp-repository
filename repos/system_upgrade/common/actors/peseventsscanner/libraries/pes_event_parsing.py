@@ -76,7 +76,7 @@ def get_pes_events(pes_json_directory, pes_json_filename):
         if not events_data:
             return None
 
-        if not events_data.get('packageinfo'):
+        if events_data.get('packageinfo') is None:
             raise ValueError('Found PES data with invalid structure')
 
         all_events = list(chain(*[parse_entry(entry) for entry in events_data['packageinfo']]))
