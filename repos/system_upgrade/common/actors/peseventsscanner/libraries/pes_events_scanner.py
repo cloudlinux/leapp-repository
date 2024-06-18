@@ -242,8 +242,7 @@ def compute_packages_on_target_system(source_pkgs, events, releases):
             did_processing_cross_major_version = True
             pkgs_to_demodularize = {pkg for pkg in target_pkgs if pkg.modulestream}
 
-        target_pkgs, pkgs_to_demodularize, pkgs_to_reinstall = compute_pkg_changes_between_consequent_releases
-        (
+        target_pkgs, pkgs_to_demodularize, pkgs_to_reinstall = compute_pkg_changes_between_consequent_releases(
             target_pkgs, events,
             release, seen_pkgs,
             pkgs_to_demodularize
@@ -535,5 +534,5 @@ def process():
     # Compare the packages on source system and the computed packages on target system and determine what to install
     rpm_tasks = compute_rpm_tasks_from_pkg_set_diff(source_pkgs, target_pkgs, pkgs_to_demodularize)
     if rpm_tasks:
-        rpm_tasks.to_reinstall = pkgs_to_reinstall
+        rpm_tasks.to_reinstall = sorted(pkgs_to_reinstall)
         api.produce(rpm_tasks)
