@@ -112,7 +112,10 @@ def _get_path_to_gpg_certs():
     # only beta is special in regards to the GPG signing keys
     if target_product_type == 'beta':
         certs_dir = '{}beta'.format(target_major_version)
-    return os.path.join(api.get_common_folder_path(GPG_CERTS_FOLDER), certs_dir)
+    return [
+        "/etc/leapp/files/vendors.d/rpm-gpg/",
+        os.path.join(api.get_common_folder_path(GPG_CERTS_FOLDER), certs_dir)
+    ]
 
 
 def _expand_vars(path):
@@ -169,14 +172,15 @@ def _get_pubkeys(installed_rpms):
     """
     pubkeys = _pubkeys_from_rpms(installed_rpms)
     certs_path = _get_path_to_gpg_certs()
-    for certname in os.listdir(certs_path):
-        key_file = os.path.join(certs_path, certname)
-        fps = _read_gpg_fp_from_file(key_file)
-        if fps:
-            pubkeys += fps
-        # TODO: what about else: ?
-        # The warning is now logged in _read_gpg_fp_from_file. We can raise
-        # the priority of the message or convert it to report though.
+    for trusted_dir in certs_path:
+        for certname in os.listdir(trusted_dir):
+            key_file = os.path.join(trusted_dir, certname)
+            fps = _read_gpg_fp_from_file(key_file)
+            if fps:
+                pubkeys += fps
+            # TODO: what about else: ?
+            # The warning is now logged in _read_gpg_fp_from_file. We can raise
+            # the priority of the message or convert it to report though.
     return pubkeys
 
 
@@ -270,11 +274,11 @@ def _report(title, summary, keys, inhibitor=False):
     )
     hint = (
         'Check the path to the listed GPG keys is correct, the keys are valid and'
-        ' import them into the host RPM DB or store them inside the {} directory'
+        ' import them into the host RPM DB or store them inside on of the {} directories'
         ' prior the upgrade.'
         ' If you want to proceed the in-place upgrade without checking any RPM'
         ' signatures, execute leapp with the `--nogpgcheck` option.'
-        .format(_get_path_to_gpg_certs())
+        .format(','.format(_get_path_to_gpg_certs()))
     )
     groups = [reporting.Groups.REPOSITORY]
     if inhibitor:
@@ -305,8 +309,8 @@ def _report(title, summary, keys, inhibitor=False):
 def _report_missing_keys(keys):
     summary = (
         'Some of the target repositories require GPG keys that are not installed'
-        ' in the current RPM DB or are not stored in the {trust_dir} directory.'
-        .format(trust_dir=_get_path_to_gpg_certs())
+        ' in the current RPM DB or are not stored in the {trust_dir} directories.'
+        .format(trust_dir=','.join(_get_path_to_gpg_certs()))
     )
     _report('Detected unknown GPG keys for target system repositories', summary, keys, True)
 
@@ -380,11 +384,12 @@ def _report_repos_missing_keys(repos):
 
 
 def register_dnfworkaround():
-    api.produce(DNFWorkaround(
-        display_name='import trusted gpg keys to RPM DB',
-        script_path=api.current_actor().get_common_tool_path('importrpmgpgkeys'),
-        script_args=[_get_path_to_gpg_certs()],
-    ))
+    for trust_certs_dir in _get_path_to_gpg_certs():
+        api.produce(DNFWorkaround(
+            display_name='import trusted gpg keys to RPM DB',
+            script_path=api.current_actor().get_common_tool_path('importrpmgpgkeys'),
+            script_args=[trust_certs_dir],
+        ))
 
 
 @suppress_deprecation(TMPTargetRepositoriesFacts)
