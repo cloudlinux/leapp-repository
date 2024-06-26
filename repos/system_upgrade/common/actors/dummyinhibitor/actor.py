@@ -17,11 +17,11 @@ class DummyInhibitor(Actor):
     tags = (IPUWorkflowTag, ChecksPhaseTag)
 
     def process(self):
-        if os.path.exists("/etc/noleapp"):
+        if os.path.exists("/etc/leapp-simulate-inhibitor"):
             reporting.create_report([
-                reporting.Title('Upgrade blocked by /etc/noleapp'),
+                reporting.Title('Upgrade blocked by /etc/leapp-simulate-inhibitor'),
                 reporting.Summary(
-                    '/etc/noleapp file is present, upgrade blocked by dummy_inhibitor actor.'
+                    '/etc/leapp-simulate-inhibitor file is present, upgrade blocked by dummy_inhibitor actor.'
                 ),
                 reporting.Severity(reporting.Severity.HIGH),
                 reporting.Tags([reporting.Tags.SANITY]),
