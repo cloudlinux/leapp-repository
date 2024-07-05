@@ -40,7 +40,7 @@ class PinClnMirror(Actor):
         try:
             with open(os.path.join(self.TARGET_USERSPACE, '/var/lib/dnf/_spacewalk.json')) as file:
                 spacewalk_settings = json.load(file)
-        except (OSError, IOError, json.JSONDecodeError):
+        except (OSError, IOError, ValueError):
             api.current_logger().error("No spacewalk settings found - can't identify the last used CLN mirror")
 
         mirror_url = spacewalk_settings.get(self.CLN_REPO_ID, {}).get("url", [self.DEFAULT_CLN_MIRROR])[0]
