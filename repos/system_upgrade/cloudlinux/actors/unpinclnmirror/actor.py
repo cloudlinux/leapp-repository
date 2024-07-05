@@ -18,17 +18,18 @@ class UnpinClnMirror(Actor):
 
     CLN_REPO_ID = "cloudlinux-x86_64-server-8"
     DEFAULT_CLN_MIRROR = "https://xmlrpc.cln.cloudlinux.com/XMLRPC/"
-    TARGET_USERSPACE = get_target_userspace_path()
 
     @run_on_cloudlinux
     def process(self):
+        target_userspace = get_target_userspace_path()
+
         try:
-            mirrorlist_path = os.path.join(self.TARGET_USERSPACE, 'etc/mirrorlist')
+            mirrorlist_path = os.path.join(target_userspace, 'etc/mirrorlist')
             os.remove(mirrorlist_path)
         except FileNotFoundError:
             self.log.info('mirrorlist does not exist, doing nothing.')
 
-        uo2date_path = os.path.join(self.TARGET_USERSPACE, 'etc/sysconfig/rhn/up2date')
+        uo2date_path = os.path.join(target_userspace, 'etc/sysconfig/rhn/up2date')
         with open(uo2date_path, 'r') as file:
             lines = [
                 line for line in file.readlines() if 'mirrorURL=file:///etc/mirrorlist' not in line

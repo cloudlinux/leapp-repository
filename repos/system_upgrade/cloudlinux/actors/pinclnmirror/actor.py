@@ -28,17 +28,18 @@ class PinClnMirror(Actor):
 
     CLN_REPO_ID = "cloudlinux-x86_64-server-8"
     DEFAULT_CLN_MIRROR = "https://xmlrpc.cln.cloudlinux.com/XMLRPC/"
-    TARGET_USERSPACE = get_target_userspace_path()
 
     @run_on_cloudlinux
     def process(self):
+        target_userspace = get_target_userspace_path()
+
         # load last mirror URL from dnf spacewalk plugin cache
         spacewalk_settings = {}
 
         # find the mirror used in the last transaction
         # (expecting to find the one used in dnf_package_download actor)
         try:
-            with open(os.path.join(self.TARGET_USERSPACE, '/var/lib/dnf/_spacewalk.json')) as file:
+            with open(os.path.join(target_userspace, '/var/lib/dnf/_spacewalk.json')) as file:
                 spacewalk_settings = json.load(file)
         except (OSError, IOError, ValueError):
             api.current_logger().error("No spacewalk settings found - can't identify the last used CLN mirror")
@@ -47,8 +48,8 @@ class PinClnMirror(Actor):
         api.current_logger().info("Pin CLN mirror: %s", mirror_url)
 
         # pin mirror
-        with open(os.path.join(self.TARGET_USERSPACE, '/etc/mirrorlist'), 'w') as file:
+        with open(os.path.join(target_userspace, '/etc/mirrorlist'), 'w') as file:
             file.write(mirror_url + '\n')
 
-        with open(os.path.join(self.TARGET_USERSPACE, '/etc/sysconfig/rhn/up2date'), 'a+') as file:
+        with open(os.path.join(target_userspace, '/etc/sysconfig/rhn/up2date'), 'a+') as file:
             file.write('\nmirrorURL=file:///etc/mirrorlist\n')
