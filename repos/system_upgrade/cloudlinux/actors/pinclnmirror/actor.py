@@ -24,7 +24,7 @@ class PinClnMirror(Actor):
     name = 'pin_cln_mirror'
     consumes = ()
     produces = ()
-    tags = (IPUWorkflowTag, DownloadPhaseTag.After)
+    tags = (IPUWorkflowTag, DownloadPhaseTag.Before)
 
     CLN_REPO_ID = "cloudlinux-x86_64-server-8"
     DEFAULT_CLN_MIRROR = "https://xmlrpc.cln.cloudlinux.com/XMLRPC/"
