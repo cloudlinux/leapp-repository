@@ -1,6 +1,7 @@
 from leapp.actors import Actor
 from leapp.tags import FirstBootPhaseTag, IPUWorkflowTag
 from leapp.libraries.common.cllaunch import run_on_cloudlinux
+from leapp.libraries.common.cln_switch import get_cln_cacheonly_flag_path
 
 import os
 
@@ -17,6 +18,6 @@ class UnsetClnCacheOnlyFlag(Actor):
     @run_on_cloudlinux
     def process(self):
         try:
-            os.remove('/var/lib/leapp/el8userspace/etc/cln_leapp_in_progress')
+            os.remove(get_cln_cacheonly_flag_path())
         except FileNotFoundError:
             self.log.info('CLN cache file marker does not exist, doing nothing.')

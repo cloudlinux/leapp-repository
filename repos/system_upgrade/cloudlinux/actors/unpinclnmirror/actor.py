@@ -2,11 +2,13 @@ import os
 
 from leapp.actors import Actor
 from leapp.libraries.common.cllaunch import run_on_cloudlinux
+from leapp.libraries.common.cln_switch import get_target_userspace_path
 from leapp.tags import FirstBootPhaseTag, IPUWorkflowTag
 
 class UnpinClnMirror(Actor):
     """
-    Remove pinned CLN mirror
+    Remove the pinned CLN mirror.
+    See the pin_cln_mirror actor for more details.
     """
 
     name = 'unpin_cln_mirror'
@@ -16,19 +18,20 @@ class UnpinClnMirror(Actor):
 
     CLN_REPO_ID = "cloudlinux-x86_64-server-8"
     DEFAULT_CLN_MIRROR = "https://xmlrpc.cln.cloudlinux.com/XMLRPC/"
-    MIRRORLIST_PATH = '/var/lib/leapp/el8userspace/etc/mirrorlist'
-    UP2DATE_PATH = '/var/lib/leapp/el8userspace/etc/sysconfig/rhn/up2date'
+    TARGET_USERSPACE = get_target_userspace_path()
 
     @run_on_cloudlinux
     def process(self):
         try:
-            os.remove(self.MIRRORLIST_PATH)
+            mirrorlist_path = os.path.join(self.TARGET_USERSPACE, 'etc/mirrorlist')
+            os.remove(mirrorlist_path)
         except FileNotFoundError:
             self.log.info('mirrorlist does not exist, doing nothing.')
 
-        with open(self.UP2DATE_PATH, 'r') as file:
+        uo2date_path = os.path.join(self.TARGET_USERSPACE, 'etc/sysconfig/rhn/up2date')
+        with open(uo2date_path, 'r') as file:
             lines = [
                 line for line in file.readlines() if 'mirrorURL=file:///etc/mirrorlist' not in line
             ]
-        with open(self.UP2DATE_PATH, 'w') as file:
+        with open(uo2date_path, 'w') as file:
             file.writelines(lines)
