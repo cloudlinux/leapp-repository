@@ -32,24 +32,32 @@ class PinClnMirror(Actor):
     @run_on_cloudlinux
     def process(self):
         target_userspace = get_target_userspace_path()
+        api.current_logger().info("Pin CLN mirror: target userspace=%s", target_userspace)
 
         # load last mirror URL from dnf spacewalk plugin cache
         spacewalk_settings = {}
 
         # find the mirror used in the last transaction
         # (expecting to find the one used in dnf_package_download actor)
+        spacewalk_json_path = os.path.join(target_userspace, '/var/lib/dnf/_spacewalk.json')
         try:
-            with open(os.path.join(target_userspace, '/var/lib/dnf/_spacewalk.json')) as file:
+            with open() as file:
                 spacewalk_settings = json.load(file)
         except (OSError, IOError, ValueError):
-            api.current_logger().error("No spacewalk settings found - can't identify the last used CLN mirror")
+            api.current_logger().error(
+                "No spacewalk settings found in %s - can't identify the last used CLN mirror",
+                spacewalk_json_path,
+            )
 
         mirror_url = spacewalk_settings.get(self.CLN_REPO_ID, {}).get("url", [self.DEFAULT_CLN_MIRROR])[0]
-        api.current_logger().info("Pin CLN mirror: %s", mirror_url)
 
         # pin mirror
-        with open(os.path.join(target_userspace, '/etc/mirrorlist'), 'w') as file:
+        mirrorlist_path = os.path.join(target_userspace, '/etc/mirrorlist')
+        api.current_logger().info("Pin CLN mirror %s in %s", mirror_url, mirrorlist_path)
+        with open(mirrorlist_path, 'w') as file:
             file.write(mirror_url + '\n')
 
-        with open(os.path.join(target_userspace, '/etc/sysconfig/rhn/up2date'), 'a+') as file:
+        up2date_path = os.path.join(target_userspace, '/etc/sysconfig/rhn/up2date')
+        api.current_logger().info("Update up2date_path %s", up2date_path)
+        with open(up2date_path, 'a+') as file:
             file.write('\nmirrorURL=file:///etc/mirrorlist\n')
