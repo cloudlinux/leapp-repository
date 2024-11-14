@@ -2,18 +2,20 @@
 
 BACKUP="/etc/cl-elevate-saved"
 RUNNING_KERNEL=$(uname -r)
+TMP="${BACKUP}/tmp"
 
 echo "Starting ELS package handling"
 echo "Running kernel: ${RUNNING_KERNEL}"
 
-mkdir -p "${BACKUP}" 2>/dev/null || {
-    echo "Failed to create backup directory ${BACKUP}"
+mkdir -p "${BACKUP}" "${TMP}" 2>/dev/null || {
+    echo "Failed to create backup/temp directories"
     exit 1
 }
 
 # Check if ELS repositories are present
 if ! ls /etc/yum.repos.d/centos*els*.repo &> /dev/null; then
     echo "No ELS repositories found, skipping processing"
+    rm -rf "${TMP}"
     exit 0
 fi
 
@@ -44,9 +46,7 @@ fi
 cp /etc/yum.repos.d/centos*els*.repo "${BACKUP}/" 2>&1
 echo "Disabling ELS repositories..."
 yum-config-manager --disable centos7-els 2>&1
-for i in {1..6}; do
-    yum-config-manager --disable centos7els-rollout-$i 2>&1
-done
+yum-config-manager --disable 'centos7els-rollout-*' 2>&1
 
 # Remove els-define package first if present
 if rpm -q els-define &> /dev/null; then
@@ -86,7 +86,7 @@ if [ -n "$els_pkgs" ]; then
         echo "Processing non-kernel ELS packages..."
 
         # Create a yum shell script for batch processing
-        TMPFILE=$(mktemp)
+        TMPFILE="${TMP}/yum_commands_$$"
         echo "# yum shell commands" > "$TMPFILE"
 
         echo "$non_kernel_els_pkgs" | while read -r pkg; do
@@ -123,8 +123,9 @@ if [ -f "/etc/pki/rpm-gpg/RPM-GPG-KEY-TuxCare" ]; then
     mv -f "/etc/pki/rpm-gpg/RPM-GPG-KEY-TuxCare" "${BACKUP}/" 2>&1
 fi
 
-# Clean yum cache
+# Clean up
 yum clean all 2>&1
+rm -rf "${TMP}"
 
 echo "ELS package handling complete"
 exit 0
