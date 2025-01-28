@@ -97,5 +97,6 @@ class ClearPackageConflicts(Actor):
 
     @run_on_cloudlinux
     def process(self):
-        self.rpm_lookup = {rpm for rpm in self.consume(InstalledRPM)}
+        # todo: (CLOS-3205) investigate why set is needed here
+        self.rpm_lookup = [rpm for rpm in self.consume(InstalledRPM)]
         self.alt_python37_handle()

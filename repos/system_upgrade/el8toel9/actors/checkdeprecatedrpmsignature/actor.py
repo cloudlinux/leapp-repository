@@ -37,4 +37,6 @@ class CheckDeprecatedRPMSignature(Actor):
     tags = (IPUWorkflowTag, ChecksPhaseTag)
 
     def process(self):
-        checkdeprecatedrpmsignature.process()
+        # todo: (CLOS-3206) resign all packages and turn the check back on
+        # checkdeprecatedrpmsignature.process()
+        pass

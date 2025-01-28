@@ -9,6 +9,7 @@ from leapp.libraries.common.cllaunch import run_on_cloudlinux
 from leapp.libraries.common.cln_switch import cln_switch, get_target_userspace_path
 from leapp import reporting
 from leapp.reporting import Report
+from leapp.libraries.common.config.version import get_target_major_version
 
 
 
@@ -29,7 +30,7 @@ class SwitchClnChannelDownload(Actor):
     @run_on_cloudlinux
     def process(self):
         try:
-            cln_switch(target=8)
+            cln_switch(target=int(get_target_major_version()))
         except CalledProcessError as e:
             reporting.create_report(
                 [

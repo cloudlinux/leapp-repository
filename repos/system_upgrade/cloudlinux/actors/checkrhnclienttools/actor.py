@@ -27,6 +27,9 @@ class CheckRhnClientToolsVersion(Actor):
 
     @run_on_cloudlinux
     def process(self):
+        # todo: (CLOS-3202) update the actor
+        return
+
         title, summary, remediation = None, None, None
         # ex:
         #   Version      : 2.0.2

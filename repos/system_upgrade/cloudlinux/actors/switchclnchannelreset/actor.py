@@ -4,6 +4,7 @@ from leapp.tags import IPUWorkflowTag, TargetTransactionChecksPhaseTag
 from leapp.libraries.stdlib import CalledProcessError
 from leapp.libraries.common.cllaunch import run_on_cloudlinux
 from leapp.libraries.common.cln_switch import cln_switch
+from leapp.libraries.common.config.version import get_source_major_version
 from leapp import reporting
 from leapp.reporting import Report
 
@@ -21,12 +22,12 @@ class SwitchClnChannelReset(Actor):
     @run_on_cloudlinux
     def process(self):
         try:
-            cln_switch(target=7)
+            cln_switch(target=get_source_major_version())
         except CalledProcessError as e:
             reporting.create_report(
                 [
                     reporting.Title(
-                        "Failed to switch CloudLinux Network channel from to 7."
+                        "Failed to switch CloudLinux Network channel."
                     ),
                     reporting.Summary(
                         "Command {} failed with exit code {}."

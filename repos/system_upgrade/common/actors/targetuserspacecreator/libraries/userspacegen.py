@@ -215,8 +215,8 @@ def _handle_transaction_err_msg_size(err):
 
 
 def enable_spacewalk_module(context):
-    enabled_repos = ["cloudlinux8-baseos"]
     target_major_version = get_target_major_version()
+    enabled_repos = ["cloudlinux{version}-baseos".format(version=target_major_version)]
     repos_opt = [['--enablerepo', repo] for repo in enabled_repos]
     repos_opt = list(itertools.chain(*repos_opt))
 
@@ -260,10 +260,18 @@ def prepare_target_userspace(context, userspace_dir, enabled_repos, packages):
             _import_gpg_keys(context, install_root_dir, target_major_version)
 
         api.current_logger().debug('Installing cloudlinux-release')
-        context.call(['rpm', '--import', 'https://repo.cloudlinux.com/cloudlinux/security/RPM-GPG-KEY-CloudLinux'], callback_raw=utils.logging_handler)
-        context.call(['dnf', '-y', 'localinstall', 'https://repo.cloudlinux.com/cloudlinux/migrate/release-files/cloudlinux/8/x86_64/cloudlinux8-release-current.x86_64.rpm'], callback_raw=utils.logging_handler)
+        context.call(['rpm', '--import', 'https://repo.cloudlinux.com/cloudlinux/security/RPM-GPG-KEY-CloudLinux'],
+                     callback_raw=utils.logging_handler)
+        cloudlinux_release_url = (
+            'https://repo.cloudlinux.com/cloudlinux/migrate/release-files'
+            '/cloudlinux/{version}/x86_64/cloudlinux{version}-release-current.x86_64.rpm'
+        ).format(version=target_major_version)
+        context.call(['dnf', '-y', 'localinstall', cloudlinux_release_url],
+                     callback_raw=utils.logging_handler)
 
-        enable_spacewalk_module(context)
+        # cloudlinux 9 does not have modular packages
+        if target_major_version == '8':
+            enable_spacewalk_module(context)
 
         api.current_logger().debug('Installing packages into target userspace: {}'.format(packages))
 
@@ -333,7 +341,7 @@ def prepare_target_userspace(context, userspace_dir, enabled_repos, packages):
         # transaction check phase is done - so the preupgrade checks won't affect the host system.
         # The 'switch_cln_channel_download' actor should take care of switching the channel back to the CL8 channel
         # when it's time to download the upgrade packages.
-        cln_switch(target=8)
+        cln_switch(target=int(target_major_version))
 
 
 def _query_rpm_for_pkg_files(context, pkgs):
