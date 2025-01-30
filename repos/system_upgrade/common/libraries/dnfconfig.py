@@ -115,6 +115,8 @@ def _set_excluded_pkgs(context, pkglist, disable_plugins):
                 'stderr': e.stderr
             }
         )
+
+    context.call(['dnf', 'config-manager', '--setopt=debuglevel=10', '--save'])
     api.current_logger().debug('The DNF configuration has been updated to exclude leapp packages.')
 
 
