@@ -268,8 +268,6 @@ def prepare_target_userspace(context, userspace_dir, enabled_repos, packages):
         ).format(version=target_major_version)
         context.call(['dnf', '-y', 'localinstall', cloudlinux_release_url],
                      callback_raw=utils.logging_handler)
-        context.call(['dnf', 'config-manager', '--setopt=debuglevel=10', '--save'],
-                     callback_raw=utils.logging_handler)
 
         # cloudlinux 9 does not have modular packages
         if target_major_version == '8':
@@ -296,6 +294,9 @@ def prepare_target_userspace(context, userspace_dir, enabled_repos, packages):
             cmd += ['--disableplugin', 'subscription-manager']
         try:
             context.call(cmd, callback_raw=utils.logging_handler)
+
+            context.call(['dnf', 'config-manager', '--setopt=debuglevel=10', '--save'],
+                         callback_raw=utils.logging_handler)
         except CalledProcessError as exc:
             message = 'Unable to install RHEL {} userspace packages.'.format(target_major_version)
             details = {'details': str(exc), 'stderr': exc.stderr}
