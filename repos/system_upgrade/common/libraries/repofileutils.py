@@ -30,11 +30,14 @@ def _prepare_config(repodata, config_parser):
     for repo in repodata.data:
         config_parser.add_section(repo.repoid)
 
-        repo_enabled = 1 if repo.enabled else 0
         config_parser.set(repo.repoid, 'name', repo.name)
         config_parser.set(repo.repoid, 'baseurl', repo.baseurl)
-        config_parser.set(repo.repoid, 'metalink', repo.metalink)
-        config_parser.set(repo.repoid, 'mirrorlist', repo.mirrorlist)
+        if repo.metalink:
+            config_parser.set(repo.repoid, 'metalink', repo.metalink)
+        if repo.mirrorlist:
+            config_parser.set(repo.repoid, 'mirrorlist', repo.mirrorlist)
+
+        repo_enabled = '1' if repo.enabled else '0'
         config_parser.set(repo.repoid, 'enabled', repo_enabled)
 
 
