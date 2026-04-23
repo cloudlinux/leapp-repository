@@ -1,0 +1,44 @@
+# AI assistant tooling — must not ship in src.rpm or binary packages.
+# This is a blacklist across today's mainstream AI coding tools; expect
+# occasional updates as new tools emerge. The endgame is a whitelist
+# (`include` in build recipes) — see Slite "src.rpm Content Isolation".
+
+# Generic cross-tool conventions
+/.agents export-ignore
+AGENTS.md export-ignore
+
+# Claude Code
+/.claude export-ignore
+CLAUDE.md export-ignore
+
+# Cursor
+/.cursor export-ignore
+.cursorrules export-ignore
+
+# OpenAI Codex (CLI and agent)
+/.codex export-ignore
+CODEX.md export-ignore
+
+# Google Antigravity / Gemini
+/.antigravity export-ignore
+GEMINI.md export-ignore
+
+# Aider — catches .aider.chat.history.md, .aider.input.history, .aider.tags.cache.v3/, etc.
+.aider* export-ignore
+
+# Continue
+/.continue export-ignore
+
+# Codeium / Windsurf
+/.codeium export-ignore
+/.windsurf export-ignore
+.windsurfrules export-ignore
+
+# Cline / Roo
+/.cline export-ignore
+.clinerules export-ignore
+/.roo export-ignore
+.roorules export-ignore
+
+# GitHub Copilot (instructions file lives inside .github/, can't blanket-exclude .github/)
+.github/copilot-instructions.md export-ignore
