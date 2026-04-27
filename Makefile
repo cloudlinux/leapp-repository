@@ -47,6 +47,22 @@ _COPR_REPO=$${COPR_REPO:-leapp}
 _COPR_REPO_TMP=$${COPR_REPO_TMP:-leapp-tmp}
 _COPR_CONFIG=$${COPR_CONFIG:-~/.config/copr_rh_oamg.conf}
 
+# Paths used by `make sync-sources` to deploy the in-repo sources
+# to the system locations, matching the %install section of packaging/leapp-repository.spec.
+# Override on the command line if needed.
+SYNC_LEAPP_DATADIR ?= /usr/share/leapp-repository
+SYNC_REPOSITORYDIR ?= $(SYNC_LEAPP_DATADIR)/repositories
+SYNC_CUSTOM_REPOSITORYDIR ?= $(SYNC_LEAPP_DATADIR)/custom-repositories
+SYNC_LEAPP_SYSCONFDIR ?= /etc/leapp
+# rhel7 keeps el7toel8 (and uses python2); rhel8+ keeps el8toel9 (python3).
+SYNC_RHEL_MAJOR ?= $(shell rpm -E %{rhel} 2>/dev/null)
+SYNC_PYTHON_BIN ?= $(shell if [ "$(SYNC_RHEL_MAJOR)" = "7" ]; then echo /usr/bin/python2; else echo /usr/bin/python3; fi)
+# Resolve the system sitelib, bypassing any active virtualenv (make is often
+# invoked from an activated `tut/` venv in this repo, which would otherwise
+# point SYNC_PYTHON_SITELIB at the venv instead of the system location).
+SYNC_PYTHON_SITELIB ?= $(shell env -u VIRTUAL_ENV -u PYTHONPATH -u PYTHONHOME $(SYNC_PYTHON_BIN) -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])' 2>/dev/null)
+SYNC_LEAPP_CLI_DIR ?= $(SYNC_PYTHON_SITELIB)/leapp/cli/commands
+
 # tool used to run containers for testing and building packages
 _CONTAINER_TOOL=$${CONTAINER_TOOL:-podman}
 
@@ -105,6 +121,10 @@ help:
 	@echo "  help                        show this text"
 	@echo "  clean                       clean the mess"
 	@echo "  prepare                     clean the mess and prepare dirs"
+	@echo "  sync-sources                deploy repo sources into system paths"
+	@echo "                              (mirrors the spec %install section,"
+	@echo "                              no rpmbuild). Requires the leapp"
+	@echo "                              package to be installed."
 	@echo "  print_release               print release how it should look like with"
 	@echo "                              with the given parameters"
 	@echo "  source                      create the source tarball suitable for"
@@ -182,6 +202,48 @@ clean:
 prepare: clean
 	@echo "--- Prepare build directories ---"
 	@mkdir -p packaging/{sources,SRPMS,BUILD,BUILDROOT,RPMS}/
+
+# Deploy the in-repo sources to the system paths where the installed
+# leapp-upgrade-* rpm places them. Lets a developer iterate on actors
+# without rebuilding/reinstalling the package.
+# Mirrors packaging/leapp-repository.spec %install; does not strip tests or
+# Makefiles (harmless at runtime, useful for development).
+sync-sources:
+	@echo "--- Syncing leapp-repository sources to system paths ---"
+	@if [[ -z "$(SYNC_PYTHON_SITELIB)" ]] || [[ ! -d "$(SYNC_PYTHON_SITELIB)/leapp" ]]; then \
+		echo "ERROR: leapp python sitelib not found (looked at '$(SYNC_PYTHON_SITELIB)')."; \
+		echo "Install the leapp package (e.g. leapp-upgrade-el8toel9) on this host first."; \
+		exit 1; \
+	fi
+	@install -m 0755 -d $(SYNC_REPOSITORYDIR) $(SYNC_CUSTOM_REPOSITORYDIR)
+	@install -m 0755 -d $(SYNC_LEAPP_SYSCONFDIR)/repos.d \
+		$(SYNC_LEAPP_SYSCONFDIR)/transaction \
+		$(SYNC_LEAPP_SYSCONFDIR)/files
+	@echo "--- repos/* -> $(SYNC_REPOSITORYDIR)/ ---"
+	@cp -rf repos/common $(SYNC_REPOSITORYDIR)/
+	@cp -rf repos/system_upgrade $(SYNC_REPOSITORYDIR)/
+	@if [[ "$(SYNC_RHEL_MAJOR)" == "7" ]]; then \
+		rm -rf $(SYNC_REPOSITORYDIR)/system_upgrade/el8toel9; \
+	else \
+		rm -rf $(SYNC_REPOSITORYDIR)/system_upgrade/el7toel8; \
+	fi
+	@echo "--- etc/leapp/transaction/* -> $(SYNC_LEAPP_SYSCONFDIR)/transaction/ ---"
+	@install -m 0644 etc/leapp/transaction/* $(SYNC_LEAPP_SYSCONFDIR)/transaction/
+	@echo "--- commands/* -> $(SYNC_LEAPP_CLI_DIR)/ ---"
+	@install -m 0755 -d $(SYNC_LEAPP_CLI_DIR)
+	@cp -rf commands/. $(SYNC_LEAPP_CLI_DIR)/
+	@rm -rf $(SYNC_LEAPP_CLI_DIR)/tests
+	@echo "--- Refresh /etc/leapp/repos.d symlinks ---"
+	@for d in $$(find $(SYNC_REPOSITORYDIR)/ -mindepth 1 -maxdepth 1 -type d); do \
+		name=$$(basename $$d); \
+		ln -sfn $$d $(SYNC_LEAPP_SYSCONFDIR)/repos.d/$$name; \
+	done
+	@echo "--- Purge stale .pyc cache under synced paths ---"
+	@find $(SYNC_REPOSITORYDIR) $(SYNC_LEAPP_CLI_DIR) \
+		-name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+	@find $(SYNC_REPOSITORYDIR) $(SYNC_LEAPP_CLI_DIR) \
+		-name '*.pyc' -delete 2>/dev/null || true
+	@echo "--- sync-sources done ---"
 
 source: prepare
 	@echo "--- Create source tarball ---"
@@ -509,5 +571,5 @@ dashboard_data:
 	$(_PYTHON_VENV) ../../../utils/dashboard-json-dump.py > ../../../discover.json; \
 	popd
 
-.PHONY: help build clean prepare source srpm copr_build _build_local build_container print_release register install-deps install-deps-fedora  lint test_no_lint test dashboard_data fast_lint
+.PHONY: help build clean prepare sync-sources source srpm copr_build _build_local build_container print_release register install-deps install-deps-fedora  lint test_no_lint test dashboard_data fast_lint
 .PHONY: test_container test_container_no_lint test_container_all test_container_all_no_lint clean_containers _build_container_image _test_container_ipu dev_test_no_lint
