@@ -18,7 +18,8 @@ from leapp.utils.output import beautify_actor_exception, report_errors, report_i
 
 @command('upgrade', help='Upgrade the current system to the next available major version.')
 @command_opt('resume', is_flag=True, help='Continue the last execution after it was stopped (e.g. after reboot)')
-@command_opt('nowarn', is_flag=True, help='Do not display interactive warnings')
+@command_opt('nowarn', is_flag=True, help='Do not display interactive warnings',
+              aliases=['non-interactive'])
 @command_opt('reboot', is_flag=True, help='Automatically performs reboot when requested.')
 @command_opt('whitelist-experimental', action='append', metavar='ActorName', help='Enable experimental actors')
 @command_opt('debug', is_flag=True, help='Enable debug mode', inherit=False)
