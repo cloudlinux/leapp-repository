@@ -1,4 +1,4 @@
-﻿import json
+import json
 from collections import defaultdict
 from leapp.models import PESIDRepositoryEntry, RepoMapEntry, RepositoriesMapping
 
