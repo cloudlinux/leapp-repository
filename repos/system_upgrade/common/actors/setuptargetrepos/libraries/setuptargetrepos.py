@@ -77,6 +77,18 @@ def _get_mapped_repoids(repomap, src_repoids):
     return mapped_repoids
 
 
+def _get_skipped_repoids(enabled_repoids, mapped_repoids, used_repoids):
+    """
+    Return the set of source-system repoids whose packages may be left behind.
+
+    Excludes elevate repositories: their packages are leapp tooling itself,
+    intentionally not carried into the target system, so reporting them as
+    "unknown to Leapp" is a false positive.
+    """
+    skipped = enabled_repoids & used_repoids - mapped_repoids
+    return {repoid for repoid in skipped if "elevate" not in repoid}
+
+
 def _get_vendor_custom_repos(enabled_repos, mapping_list):
     # Look at what source repos from the vendor mapping were enabled.
     # If any of them are in beta, include vendor's custom repos in the list.
@@ -200,7 +212,9 @@ def process():
 
     # produce message about skipped repositories
     enabled_repoids_with_mapping = _get_mapped_repoids(repomap, enabled_repoids)
-    skipped_repoids = enabled_repoids & set(used_repoids_dict.keys()) - enabled_repoids_with_mapping
+    skipped_repoids = _get_skipped_repoids(
+        enabled_repoids, enabled_repoids_with_mapping, set(used_repoids_dict.keys())
+    )
     if skipped_repoids:
         pkgs = set()
         for repo in skipped_repoids:

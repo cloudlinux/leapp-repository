@@ -16,7 +16,10 @@ from leapp.models import (
     RepositoryData,
     RepositoryFile,
     RPM,
-    TargetRepositories
+    SkippedRepositories,
+    TargetRepositories,
+    UsedRepositories,
+    UsedRepository
 )
 
 RH_PACKAGER = 'Red Hat, Inc. <http://bugzilla.redhat.com/bugzilla>'
@@ -194,3 +197,63 @@ def test_repos_mapping(monkeypatch):
     expected_rhel_repoids = {'rhel-8-for-x86_64-baseos-htb-rpms', 'rhel-8-for-x86_64-appstream-htb-rpms',
                              'rhel-8-for-x86_64-satellite-extras-rpms'}
     assert produced_rhel_repoids == expected_rhel_repoids
+
+
+def test_skipped_repos_excludes_elevate(monkeypatch):
+    """
+    The "Some enabled RPM repositories are unknown to Leapp" report must not
+    flag elevate repos: their packages are leapp tooling itself, intentionally
+    not upgraded. A regression here drops the filter and re-introduces the
+    false positive (CLOS-4332).
+    """
+    repos_data = [
+        RepositoryData(repoid='cloudlinux-elevate', name='CloudLinux ELevate', enabled=True),
+        RepositoryData(repoid='unmapped-third-party', name='Unmapped Third Party', enabled=True),
+    ]
+    facts = RepositoriesFacts(
+        repositories=[RepositoryFile(file='/etc/yum.repos.d/test.repo', data=repos_data)]
+    )
+    used = UsedRepositories(repositories=[
+        UsedRepository(repository='cloudlinux-elevate', packages=['leapp', 'python2-leapp']),
+        UsedRepository(repository='unmapped-third-party', packages=['something']),
+    ])
+    repomap = RepositoriesMapping(mapping=[], repositories=[])
+
+    monkeypatch.setattr(api, 'current_actor', CurrentActorMocked(msgs=[facts, used, repomap]))
+    monkeypatch.setattr(api, 'produce', produce_mocked())
+
+    setuptargetrepos.process()
+
+    skipped = [m for m in api.produce.model_instances if isinstance(m, SkippedRepositories)]
+    assert len(skipped) == 1
+    assert skipped[0].repos == ['unmapped-third-party']
+    # Packages from elevate repos must not leak into the report either.
+    assert 'leapp' not in skipped[0].packages
+    assert 'python2-leapp' not in skipped[0].packages
+
+
+def test_skipped_repos_empty_when_only_elevate(monkeypatch):
+    """
+    If the only unmapped+used repos are elevate repos, no SkippedRepositories
+    message should be produced - the report would be entirely false-positive.
+    """
+    repos_data = [
+        RepositoryData(repoid='cloudlinux-elevate', name='CloudLinux ELevate', enabled=True),
+        RepositoryData(repoid='cloudlinux8-elevate', name='CloudLinux 8 ELevate', enabled=True),
+    ]
+    facts = RepositoriesFacts(
+        repositories=[RepositoryFile(file='/etc/yum.repos.d/test.repo', data=repos_data)]
+    )
+    used = UsedRepositories(repositories=[
+        UsedRepository(repository='cloudlinux-elevate', packages=['leapp']),
+        UsedRepository(repository='cloudlinux8-elevate', packages=['leapp-data-cloudlinux']),
+    ])
+    repomap = RepositoriesMapping(mapping=[], repositories=[])
+
+    monkeypatch.setattr(api, 'current_actor', CurrentActorMocked(msgs=[facts, used, repomap]))
+    monkeypatch.setattr(api, 'produce', produce_mocked())
+
+    setuptargetrepos.process()
+
+    skipped = [m for m in api.produce.model_instances if isinstance(m, SkippedRepositories)]
+    assert skipped == []
