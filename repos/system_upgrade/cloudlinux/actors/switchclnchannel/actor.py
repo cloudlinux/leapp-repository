@@ -25,7 +25,7 @@ class SwitchClnChannel(Actor):
     def process(self):
         if not is_cln_package_channel_active():
             # CLOS-4056: CLN is no longer the package channel here (no-auth /
-            # SWNG mode). Skipping the channel switch is correct — packages
+            # SWNG mode). Skipping the channel switch is correct - packages
             # come from cl-channel / cloudlinux9-baseos instead. The system
             # may still be CLN-registered for licensing; that is a separate
             # concern this actor does not need to manage.
@@ -40,7 +40,7 @@ class SwitchClnChannel(Actor):
             # CLOS-4056: Do not inhibit. Even on systems that ARE using CLN
             # as the package channel, a transient CLN-server reachability
             # problem at FirstBoot (DNS/network not up yet) shouldn't block
-            # the upgrade — the no-auth fallback repos still serve packages.
+            # the upgrade - the no-auth fallback repos still serve packages.
             reporting.create_report(
                 [
                     reporting.Title(
@@ -50,7 +50,7 @@ class SwitchClnChannel(Actor):
                         "Command {} failed with exit code {}."
                         " The most probable cause of that is a problem with this system's"
                         " CloudLinux Network registration. If this system now uses the"
-                        " no-auth (SWNG) repository scheme, this failure is harmless —"
+                        " no-auth (SWNG) repository scheme, this failure is harmless -"
                         " CL9 packages come from cl-channel / cloudlinux9-baseos instead"
                         " of CLN.".format(e.command, e.exit_code)
                     ),

@@ -2,17 +2,17 @@
 
 CLN has historically combined two concerns:
 
-  1. **Registration / identity** — the system is registered with the CLN
+  1. **Registration / identity** - the system is registered with the CLN
      server (`/etc/sysconfig/rhn/systemid`, JWT token), used for licensing
      and inventory regardless of how packages are delivered.
 
-  2. **Package delivery** — the system pulls CloudLinux packages through
+  2. **Package delivery** - the system pulls CloudLinux packages through
      the spacewalk DNF/YUM plugin against the CLN-side channel
      (`cloudlinux-x86_64-server-N`).
 
 The no-auth (SWNG) transition decouples these. New CL8 and CL9 systems
 keep CLN **registration** but no longer use CLN as the **package
-channel** — packages come from the SWNG mirrorlist via
+channel** - packages come from the SWNG mirrorlist via
 `/etc/yum.repos.d/cl.repo` (`cl-channel`) instead. `rhn-client-tools
 >= 3.0.1` disables the spacewalk plugin to enforce this.
 
@@ -57,7 +57,7 @@ def is_cln_package_channel_active():
     so CLN-targeting actions (channel switch, mirror pinning, version
     overrides) are not meaningful and should be skipped.
 
-    This is a deliberately heuristic check — it asks "is CLN going to
+    This is a deliberately heuristic check - it asks "is CLN going to
     serve packages here", not "is the system registered with CLN" (the
     two were the same thing pre-no-auth and have since diverged).
     """

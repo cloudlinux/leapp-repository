@@ -20,7 +20,7 @@ class ResetRhnVersionOverride(Actor):
         if not is_cln_package_channel_active():
             # CLOS-4056: versionOverride is only set/used by the CLN package
             # channel flow. If the system isn't on CLN for packages, leave
-            # /etc/sysconfig/rhn/up2date alone — registration metadata there
+            # /etc/sysconfig/rhn/up2date alone - registration metadata there
             # is not ours to touch.
             return
 
