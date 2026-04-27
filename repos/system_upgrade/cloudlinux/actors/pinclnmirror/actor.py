@@ -4,6 +4,7 @@ import os
 from leapp.actors import Actor
 from leapp.libraries.stdlib import api
 from leapp.libraries.common.cllaunch import run_on_cloudlinux
+from leapp.libraries.common.cln_detect import is_cln_configured
 from leapp.libraries.common.cln_switch import get_target_userspace_path
 from leapp.tags import DownloadPhaseTag, IPUWorkflowTag
 from leapp.libraries.common.config.version import get_target_major_version
@@ -25,6 +26,13 @@ class PinClnMirror(Actor):
     @run_on_cloudlinux
     def process(self):
         """Pin CLN mirror"""
+        if not is_cln_configured():
+            # CLOS-4056: no-auth systems don't use CLN mirrors; skip cleanly.
+            api.current_logger().info(
+                "CLN is not configured on this system; skipping mirror pinning"
+            )
+            return
+
         target_userspace = get_target_userspace_path()
         api.current_logger().info("Pin CLN mirror: target userspace=%s", target_userspace)
 
@@ -54,6 +62,11 @@ class PinClnMirror(Actor):
         api.current_logger().info("Pin CLN mirror %s in %s", mirror_url, mirrorlist_path)
 
         up2date_path = os.path.join(target_userspace, 'etc/sysconfig/rhn/up2date')
-        with open(up2date_path, 'a+') as file:
-            file.write('\nmirrorURL[comment]=Set mirror URL to /etc/mirrorlist\nmirrorURL=file:///etc/mirrorlist\n')
-        api.current_logger().info("Updated up2date_path %s", up2date_path)
+        try:
+            with open(up2date_path, 'a+') as file:
+                file.write('\nmirrorURL[comment]=Set mirror URL to /etc/mirrorlist\nmirrorURL=file:///etc/mirrorlist\n')
+            api.current_logger().info("Updated up2date_path %s", up2date_path)
+        except (OSError, IOError) as e:
+            api.current_logger().info(
+                "Could not update %s: %s", up2date_path, e,
+            )

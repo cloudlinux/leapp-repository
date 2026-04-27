@@ -1,6 +1,8 @@
 from leapp.actors import Actor
+from leapp.libraries.stdlib import api
 from leapp.tags import FinalizationPhaseTag, IPUWorkflowTag
 from leapp.libraries.common.cllaunch import run_on_cloudlinux
+from leapp.libraries.common.cln_detect import is_cln_configured
 
 
 class ResetRhnVersionOverride(Actor):
@@ -15,11 +17,26 @@ class ResetRhnVersionOverride(Actor):
 
     @run_on_cloudlinux
     def process(self):
+        if not is_cln_configured():
+            # CLOS-4056: no-auth systems have no CLN config to reset.
+            return
+
         up2date_config = '/etc/sysconfig/rhn/up2date'
-        with open(up2date_config, 'r') as f:
-            config_data = f.readlines()
-            for line in config_data:
-                if line.startswith('versionOverride='):
-                    line = 'versionOverride='
+        try:
+            with open(up2date_config, 'r') as f:
+                config_data = f.readlines()
+        except (OSError, IOError):
+            api.current_logger().info(
+                "RHN up2date config %s not present; skipping versionOverride reset",
+                up2date_config,
+            )
+            return
+
+        new_data = []
+        for line in config_data:
+            if line.startswith('versionOverride='):
+                new_data.append('versionOverride=\n')
+            else:
+                new_data.append(line)
         with open(up2date_config, 'w') as f:
-            f.writelines(config_data)
+            f.writelines(new_data)

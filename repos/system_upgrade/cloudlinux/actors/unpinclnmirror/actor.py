@@ -2,6 +2,7 @@ import os
 
 from leapp.actors import Actor
 from leapp.libraries.common.cllaunch import run_on_cloudlinux
+from leapp.libraries.common.cln_detect import is_cln_configured
 from leapp.libraries.common.cln_switch import get_target_userspace_path
 from leapp.tags import FirstBootPhaseTag, IPUWorkflowTag
 
@@ -19,6 +20,10 @@ class UnpinClnMirror(Actor):
 
     @run_on_cloudlinux
     def process(self):
+        if not is_cln_configured():
+            # CLOS-4056: pinclnmirror was skipped on no-auth systems, nothing to unpin.
+            return
+
         target_userspace = get_target_userspace_path()
 
         mirrorlist_path = os.path.join(target_userspace, 'etc/mirrorlist')
