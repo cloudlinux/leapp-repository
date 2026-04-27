@@ -1,0 +1,36 @@
+name: Lint (cloudlinux)
+
+# CloudLinux fork uses the `cloudlinux` branch as trunk; the inherited
+# upstream workflows (unit-tests.yml, codespell.yml, etc.) only fire on
+# `master` and so do not run on this fork. This narrow workflow guards
+# the cloudlinux branch against the most common regression we have hit:
+# stray non-ASCII bytes in Python source (em-dashes, smart quotes,
+# ellipsis from copy/paste, leftover BOMs).
+#
+# The check is just `make lint-non-ascii`, which delegates to
+# utils/check-non-ascii.py. That same target is also invoked as a
+# prerequisite of `make lint`, so local developers get the identical
+# rule when they run the full lint locally.
+#
+# Broader fixes (running the full upstream test+lint matrix on cloudlinux
+# PRs) are tracked separately.
+
+on:
+  pull_request:
+    branches: [cloudlinux]
+  push:
+    branches: [cloudlinux]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-non-ascii:
+    name: Reject undeclared non-ASCII in Python source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: make lint-non-ascii
+        run: make lint-non-ascii
