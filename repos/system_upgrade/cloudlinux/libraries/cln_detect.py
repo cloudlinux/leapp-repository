@@ -1,18 +1,27 @@
-"""Detection helpers for CLN (CloudLinux Network / Spacewalk) state.
+"""Detection helpers for the CloudLinux Network (CLN) package channel.
 
-A system is considered to have CLN *configured* when it has registration
-state plus the spacewalk DNF/YUM plugin installed and not explicitly
-disabled. Systems that have been migrated to the no-auth (SWNG mirrorlist)
-scheme have either:
+CLN has historically combined two concerns:
 
-  - no `/etc/sysconfig/rhn/systemid` (never registered or deregistered),
-  - no spacewalk plugin installed (rhn-client-tools >= 3.0.1 removes it), or
-  - the plugin's `enabled = 0` in its config.
+  1. **Registration / identity** — the system is registered with the CLN
+     server (`/etc/sysconfig/rhn/systemid`, JWT token), used for licensing
+     and inventory regardless of how packages are delivered.
 
-CLOS-4056: several CloudLinux-specific actors were written when CLN was the
-only scheme and assume it is always active. They need to gate their
-behavior on `is_cln_configured()` so systems on the no-auth scheme pass
-through without bogus inhibitors or crashes.
+  2. **Package delivery** — the system pulls CloudLinux packages through
+     the spacewalk DNF/YUM plugin against the CLN-side channel
+     (`cloudlinux-x86_64-server-N`).
+
+The no-auth (SWNG) transition decouples these. New CL8 and CL9 systems
+keep CLN **registration** but no longer use CLN as the **package
+channel** — packages come from the SWNG mirrorlist via
+`/etc/yum.repos.d/cl.repo` (`cl-channel`) instead. `rhn-client-tools
+>= 3.0.1` disables the spacewalk plugin to enforce this.
+
+The CLN-touching actors in this repo only care about the second concern:
+they exist to make the CLN package channel work during ELevate. On
+systems where the channel has been switched off they should stand down
+even though registration may still be present and valid.
+
+CLOS-4056: gate those actors on `is_cln_package_channel_active()`.
 """
 
 import os
@@ -38,8 +47,20 @@ def _plugin_explicitly_disabled(conf_path):
     return False
 
 
-def is_cln_configured():
-    """Return True if CLN plumbing is present and not disabled on this system."""
+def is_cln_package_channel_active():
+    """Return True when CLN is the active package channel for this system.
+
+    A True result means the spacewalk DNF/YUM plugin is installed, not
+    explicitly disabled, and the system has CLN registration state for
+    the plugin to authenticate with. A False result means the system is
+    either deregistered or has been moved to the no-auth (SWNG) scheme,
+    so CLN-targeting actions (channel switch, mirror pinning, version
+    overrides) are not meaningful and should be skipped.
+
+    This is a deliberately heuristic check — it asks "is CLN going to
+    serve packages here", not "is the system registered with CLN" (the
+    two were the same thing pre-no-auth and have since diverged).
+    """
     if not os.path.exists(RHN_SYSTEMID):
         return False
 
@@ -47,7 +68,6 @@ def is_cln_configured():
     if not configs:
         return False
 
-    # If any plugin config explicitly disables the plugin, treat as no-auth.
     for conf in configs:
         if _plugin_explicitly_disabled(conf):
             return False

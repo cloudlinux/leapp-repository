@@ -3,7 +3,7 @@ from leapp.libraries.stdlib import api
 from leapp.tags import FirstBootPhaseTag, IPUWorkflowTag
 from leapp.libraries.stdlib import CalledProcessError
 from leapp.libraries.common.cllaunch import run_on_cloudlinux
-from leapp.libraries.common.cln_detect import is_cln_configured
+from leapp.libraries.common.cln_detect import is_cln_package_channel_active
 from leapp.libraries.common.cln_switch import cln_switch
 from leapp import reporting
 from leapp.reporting import Report
@@ -23,22 +23,24 @@ class SwitchClnChannel(Actor):
 
     @run_on_cloudlinux
     def process(self):
-        if not is_cln_configured():
-            # CLOS-4056: No-auth (SWNG) systems have no CLN plumbing. Skipping
-            # the channel switch here is correct — the system receives CL9
-            # packages via cl-channel / cloudlinux9-baseos instead.
+        if not is_cln_package_channel_active():
+            # CLOS-4056: CLN is no longer the package channel here (no-auth /
+            # SWNG mode). Skipping the channel switch is correct — packages
+            # come from cl-channel / cloudlinux9-baseos instead. The system
+            # may still be CLN-registered for licensing; that is a separate
+            # concern this actor does not need to manage.
             api.current_logger().info(
-                "CLN is not configured on this system; skipping channel switch"
+                "CLN is not the active package channel; skipping channel switch"
             )
             return
 
         try:
             cln_switch(target=int(get_target_major_version()))
         except CalledProcessError as e:
-            # CLOS-4056: Do not inhibit. CLN may be partially configured (legacy
-            # registration files present but no working registration) on systems
-            # transitioning to the no-auth scheme, and a failed channel switch
-            # there is expected — the no-auth repos still serve CL9 packages.
+            # CLOS-4056: Do not inhibit. Even on systems that ARE using CLN
+            # as the package channel, a transient CLN-server reachability
+            # problem at FirstBoot (DNS/network not up yet) shouldn't block
+            # the upgrade — the no-auth fallback repos still serve packages.
             reporting.create_report(
                 [
                     reporting.Title(

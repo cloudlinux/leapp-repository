@@ -4,7 +4,7 @@ import os
 from leapp.actors import Actor
 from leapp.libraries.stdlib import api
 from leapp.libraries.common.cllaunch import run_on_cloudlinux
-from leapp.libraries.common.cln_detect import is_cln_configured
+from leapp.libraries.common.cln_detect import is_cln_package_channel_active
 from leapp.libraries.common.cln_switch import get_target_userspace_path
 from leapp.tags import DownloadPhaseTag, IPUWorkflowTag
 from leapp.libraries.common.config.version import get_target_major_version
@@ -26,10 +26,13 @@ class PinClnMirror(Actor):
     @run_on_cloudlinux
     def process(self):
         """Pin CLN mirror"""
-        if not is_cln_configured():
-            # CLOS-4056: no-auth systems don't use CLN mirrors; skip cleanly.
+        if not is_cln_package_channel_active():
+            # CLOS-4056: pinning the CLN mirror is only meaningful when CLN
+            # is delivering packages. On no-auth (SWNG) systems packages come
+            # from cl-channel via mirrorlist, so there is nothing to pin —
+            # registration may still be in place but is irrelevant here.
             api.current_logger().info(
-                "CLN is not configured on this system; skipping mirror pinning"
+                "CLN is not the active package channel; skipping mirror pinning"
             )
             return
 

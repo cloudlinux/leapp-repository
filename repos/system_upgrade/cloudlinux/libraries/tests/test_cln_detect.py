@@ -21,48 +21,49 @@ def _touch(path, content=""):
     path.write_text(content)
 
 
-def test_no_systemid_means_no_cln(clean_paths):
-    # Without /etc/sysconfig/rhn/systemid the system is not registered with CLN.
-    assert cln_detect.is_cln_configured() is False
+def test_no_systemid_means_channel_inactive(clean_paths):
+    # Without registration the spacewalk plugin can't authenticate, so even
+    # if the plugin is installed it is not the active package channel.
+    assert cln_detect.is_cln_package_channel_active() is False
 
 
-def test_systemid_but_no_plugin_means_no_cln(clean_paths):
+def test_systemid_but_no_plugin_means_channel_inactive(clean_paths):
     _touch(clean_paths["systemid"])
-    assert cln_detect.is_cln_configured() is False
+    assert cln_detect.is_cln_package_channel_active() is False
 
 
-def test_systemid_and_enabled_dnf_plugin_means_cln(clean_paths):
+def test_systemid_and_enabled_dnf_plugin_means_channel_active(clean_paths):
     _touch(clean_paths["systemid"])
     _touch(clean_paths["dnf_conf"], "[main]\nenabled = 1\n")
-    assert cln_detect.is_cln_configured() is True
+    assert cln_detect.is_cln_package_channel_active() is True
 
 
-def test_explicit_disabled_dnf_plugin_means_no_cln(clean_paths):
+def test_explicit_disabled_dnf_plugin_means_channel_inactive(clean_paths):
     _touch(clean_paths["systemid"])
     _touch(clean_paths["dnf_conf"], "[main]\nenabled = 0\n")
-    assert cln_detect.is_cln_configured() is False
+    assert cln_detect.is_cln_package_channel_active() is False
 
 
-def test_explicit_disabled_yum_plugin_means_no_cln(clean_paths):
+def test_explicit_disabled_yum_plugin_means_channel_inactive(clean_paths):
     _touch(clean_paths["systemid"])
     _touch(clean_paths["yum_conf"], "[main]\nenabled=0\n")
-    assert cln_detect.is_cln_configured() is False
+    assert cln_detect.is_cln_package_channel_active() is False
 
 
-def test_one_plugin_disabled_one_not_means_no_cln(clean_paths):
-    # If either plugin config disables it, CLN is not usable.
+def test_one_plugin_disabled_one_not_means_channel_inactive(clean_paths):
+    # If either plugin config disables the plugin, treat the channel as off.
     _touch(clean_paths["systemid"])
     _touch(clean_paths["dnf_conf"], "[main]\nenabled = 1\n")
     _touch(clean_paths["yum_conf"], "[main]\nenabled = 0\n")
-    assert cln_detect.is_cln_configured() is False
+    assert cln_detect.is_cln_package_channel_active() is False
 
 
-def test_plugin_conf_without_enabled_key_means_cln(clean_paths):
-    # A plugin config that doesn't mention `enabled` defaults to enabled upstream,
-    # so we must treat it as CLN active.
+def test_plugin_conf_without_enabled_key_means_channel_active(clean_paths):
+    # A plugin config that does not mention `enabled` defaults to enabled
+    # upstream, so we must treat the channel as active.
     _touch(clean_paths["systemid"])
     _touch(clean_paths["dnf_conf"], "[main]\ntimeout = 120\n")
-    assert cln_detect.is_cln_configured() is True
+    assert cln_detect.is_cln_package_channel_active() is True
 
 
 def test_comments_and_blank_lines_ignored(clean_paths):
@@ -71,4 +72,4 @@ def test_comments_and_blank_lines_ignored(clean_paths):
         clean_paths["dnf_conf"],
         "# some comment\n\n[main]\n# enabled = 0\nenabled = 1\n",
     )
-    assert cln_detect.is_cln_configured() is True
+    assert cln_detect.is_cln_package_channel_active() is True

@@ -4,7 +4,7 @@ from leapp.libraries.stdlib import api
 from leapp.reporting import Report
 from leapp.tags import ChecksPhaseTag, IPUWorkflowTag
 from leapp.libraries.common.cllaunch import run_on_cloudlinux
-from leapp.libraries.common.cln_detect import is_cln_configured
+from leapp.libraries.common.cln_detect import is_cln_package_channel_active
 
 
 class CheckRhnVersionOverride(Actor):
@@ -19,8 +19,12 @@ class CheckRhnVersionOverride(Actor):
 
     @run_on_cloudlinux
     def process(self):
-        if not is_cln_configured():
-            # CLOS-4056: no-auth systems have no CLN config to inspect.
+        if not is_cln_package_channel_active():
+            # CLOS-4056: versionOverride only matters when CLN is delivering
+            # packages — the upgrade rewrites it to drive channel selection.
+            # On no-auth (SWNG) systems the package channel is cl-channel,
+            # not CLN, so there is nothing to inspect or warn about even if
+            # /etc/sysconfig/rhn/up2date is still present from registration.
             return
 
         up2date_config = '/etc/sysconfig/rhn/up2date'
