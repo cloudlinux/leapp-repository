@@ -333,6 +333,11 @@ lint:
 	echo "--- Linting ... ---" && \
 	SEARCH_PATH="$(TEST_PATHS)" && \
 	echo "Using search path '$${SEARCH_PATH}'" && \
+	echo "--- Checking for non-ASCII characters (Python 2.7 compat) ---" && \
+	bash -c "[[ ! -z '$${SEARCH_PATH}' ]] && { HITS=\$$(grep -rPn '[^\x00-\x7F]' --include='*.py' $${SEARCH_PATH} 2>/dev/null); \
+	if [[ -n \"\$$HITS\" ]]; then echo \"\$$HITS\"; \
+	echo 'ERROR: Non-ASCII characters found in Python files. Python 2.7 rejects these without an encoding declaration. Replace em-dashes, smart quotes, BOMs, etc. with ASCII equivalents.'; \
+	exit 1; fi; }" && \
 	echo "--- Running pylint ---" && \
 	bash -c "[[ ! -z '$${SEARCH_PATH}' ]] && find $${SEARCH_PATH} -name '*.py' | sort -u | xargs pylint -j0 $(PYLINT_ARGS)" && \
 	echo "--- Running flake8 ---" && \
