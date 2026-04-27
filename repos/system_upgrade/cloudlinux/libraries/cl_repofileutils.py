@@ -1,4 +1,4 @@
-﻿import os
+import os
 import os.path
 
 from leapp.libraries.stdlib import api
