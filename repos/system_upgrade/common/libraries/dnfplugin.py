@@ -483,8 +483,6 @@ def _prepare_perform(used_repos, target_userspace_info, xfs_info, storage_info, 
                                               mount_target=os.path.join(context.base_dir, 'installroot'),
                                               scratch_reserve=reserve_space) as overlay:
             with mounting.mount_upgrade_iso_to_root_dir(target_userspace_info.path, target_iso):
-                if get_target_major_version() == '9':
-                    _rebuild_rpm_db(context, root='/installroot')
                 yield context, overlay, target_repoids
 
 
