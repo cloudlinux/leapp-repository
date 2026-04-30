@@ -8,7 +8,7 @@ from leapp.cli.commands.upgrade import breadcrumbs, util
 from leapp.exceptions import CommandError, LeappError
 from leapp.logger import configure_logger
 from leapp.utils.audit import Execution
-from leapp.utils.clicmd import command, command_opt
+from leapp.utils.clicmd import command, command_opt, _ensure_command
 from leapp.utils.output import beautify_actor_exception, report_errors, report_info
 
 # NOTE:
@@ -16,10 +16,36 @@ from leapp.utils.output import beautify_actor_exception, report_errors, report_i
 # otherwise there might be errors.
 
 
+def command_opt_with_aliases(name, *aliases, **kwargs):
+    """Like command_opt, but registers --<name> AND extra long-form aliases.
+
+    leapp framework's add_option (as of 0.18.0) accepts only one long name,
+    so a plain `aliases=` kwarg trips on `add_option() got an unexpected
+    keyword argument 'aliases'`. argparse, however, supports multiple long
+    forms natively when add_argument is called with several name strings.
+    We bypass add_option and call the lower-level _add_opt directly.
+
+    `dest` is derived by argparse from the first long form (here `name`),
+    so existing consumers reading `args.<name>` keep working unchanged.
+    """
+    is_flag = kwargs.pop('is_flag', False)
+    help_text = kwargs.pop('help', '')
+    action = kwargs.pop('action', 'store_true' if is_flag else 'store')
+    inherit = kwargs.pop('inherit', False)
+
+    @_ensure_command
+    def wrapper(f):
+        names = ['--' + n.lstrip('-') for n in (name,) + aliases]
+        f.command._add_opt(*names, action=action, help=help_text,
+                           internal={'wrapped': f, 'inherit': inherit},
+                           **kwargs)
+        return f
+    return wrapper
+
+
 @command('upgrade', help='Upgrade the current system to the next available major version.')
 @command_opt('resume', is_flag=True, help='Continue the last execution after it was stopped (e.g. after reboot)')
-@command_opt('nowarn', is_flag=True, help='Do not display interactive warnings',
-              aliases=['non-interactive'])
+@command_opt_with_aliases('nowarn', 'non-interactive', is_flag=True, help='Do not display interactive warnings')
 @command_opt('reboot', is_flag=True, help='Automatically performs reboot when requested.')
 @command_opt('whitelist-experimental', action='append', metavar='ActorName', help='Enable experimental actors')
 @command_opt('debug', is_flag=True, help='Enable debug mode', inherit=False)
