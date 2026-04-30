@@ -11,17 +11,18 @@ class EnableYumSpacewalkPlugin(Actor):
     consumes = ()
     produces = (Report,)
     tags = (FirstBootPhaseTag, IPUWorkflowTag)
-    config = enableyumspacewalkplugin.DEFAULT_CONFIG_PATH
+
+    CONFIG_PATH = enableyumspacewalkplugin.DEFAULT_CONFIG_PATH
 
     @run_on_cloudlinux
     def process(self):
         _, title = enableyumspacewalkplugin._enable_plugin(
-            self.config, enableyumspacewalkplugin.ParserClass, self.log
+            self.CONFIG_PATH, enableyumspacewalkplugin.ParserClass, self.log
         )
         if title:
             reporting.create_report([
                 reporting.Title(title),
-                reporting.Summary("DNF spacewalk plugin must be enabled for CLN channels. Config path: " + self.config),
+                reporting.Summary("DNF spacewalk plugin must be enabled for CLN channels. Config path: " + self.CONFIG_PATH),
                 reporting.Severity(reporting.Severity.MEDIUM),
                 reporting.Groups([reporting.Groups.SANITY])
             ])
