@@ -41,7 +41,7 @@ def clmysql_process(lib, repofile_name, repofile_data):
                 reporting.Summary(
                     "MySQL Governor records the installed database type as '{governor}', "
                     "but the mysqld binary on disk belongs to '{rpm}'. "
-                    "This usually means 'mysqlgovernor.py --mysql-version' was run "
+                    "This usually means '/usr/share/lve/dbgovernor/mysqlgovernor.py --mysql-version' was run "
                     "without a follow-up '--install', or packages were changed manually. "
                     "Proceeding could enable the wrong DNF module stream and break the upgrade.".format(
                         governor=detected.governor_type, rpm=detected.pkg_type
@@ -56,11 +56,11 @@ def clmysql_process(lib, repofile_name, repofile_data):
                     hint=(
                         "Examine the current state of the system's DB packages."
                         "Complete the pending Governor install:\n"
-                        "  mysqlgovernor.py --mysql-version={governor}\n"
-                        "  mysqlgovernor.py --install --yes\n"
+                        "  /usr/share/lve/dbgovernor/mysqlgovernor.py --mysql-version={governor}\n"
+                        "  /usr/share/lve/dbgovernor/mysqlgovernor.py --install --yes\n"
                         "Or reset Governor to match the actual packages:\n"
-                        "  mysqlgovernor.py --mysql-version={rpm}\n"
-                        "  mysqlgovernor.py --install --yes\n"
+                        "  /usr/share/lve/dbgovernor/mysqlgovernor.py --mysql-version={rpm}\n"
+                        "  /usr/share/lve/dbgovernor/mysqlgovernor.py --install --yes\n"
                         "Then restart the upgrade process.".format(
                             governor=detected.governor_type, rpm=detected.pkg_type
                         )
@@ -109,7 +109,7 @@ def clmysql_process(lib, repofile_name, repofile_data):
                             "The detected database type is '{}', but the cl-mysql-meta "
                             "repo URL points to '{}'. "
                             "This may happen when the database version was changed "
-                            "without a follow-up 'mysqlgovernor.py --install', or the "
+                            "without a follow-up '/usr/share/lve/dbgovernor/mysqlgovernor.py --install', or the "
                             "cl-mysql.repo file was manually edited. "
                             "Proceeding with the wrong repository would result in "
                             "an incorrect upgrade operation."
@@ -125,13 +125,16 @@ def clmysql_process(lib, repofile_name, repofile_data):
                         reporting.Groups([reporting.Groups.INHIBITOR]),
                         reporting.Remediation(
                             hint=(
-                                "Re-run MySQL Governor to regenerate the repository file: "
-                                "mysqlgovernor.py --install --yes, "
-                                "then restart the upgrade process. "
-                                "Alternatively, if the repository file was manually edited, "
-                                "either correct the baseurl to match the installed DB type or "
-                                "set the desired DB type in Governor and re-run --install "
-                                "to have it write the correct URL."
+                                "Download the correct repository file for the installed "
+                                "database type: "
+                                "curl -o /etc/yum.repos.d/cl-mysql.repo "
+                                "http://repo.cloudlinux.com/other/"
+                                "cl${{releasever}}/mysqlmeta/{expected}-common.repo\n"
+                                "Or re-run MySQL Governor to regenerate it "
+                                "(this reinstalls the full DB stack): "
+                                "/usr/share/lve/dbgovernor/mysqlgovernor.py --install --yes\n"
+                                "Then restart the upgrade process."
+                                .format(expected=expected_fragment)
                             )
                         ),
                     ]
