@@ -22,8 +22,7 @@ class UnpinClnMirror(Actor):
     def process(self):
         if not is_cln_package_channel_active():
             # CLOS-4056: pinclnmirror skipped its work for the same reason
-            # (CLN is not the package channel here), so there is nothing
-            # for us to unpin.
+            # (CLN package channel inactive), so there is nothing for us to unpin.
             return
 
         target_userspace = get_target_userspace_path()

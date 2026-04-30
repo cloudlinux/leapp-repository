@@ -2,24 +2,24 @@
 
 CLN has historically combined two concerns:
 
-  1. **Registration / identity** - the system is registered with the CLN
-     server (`/etc/sysconfig/rhn/systemid`, JWT token), used for licensing
-     and inventory regardless of how packages are delivered.
+1. *Registration / identity* - the system is registered with the CLN
+server (`/etc/sysconfig/rhn/systemid`, JWT token), used for licensing
+regardless of how packages are delivered.
 
-  2. **Package delivery** - the system pulls CloudLinux packages through
-     the spacewalk DNF/YUM plugin against the CLN-side channel
-     (`cloudlinux-x86_64-server-N`).
+2. *Package delivery* - the system pulls CloudLinux packages
+through the spacewalk DNF/YUM plugin against the
+CLN-side channel (`cloudlinux-x86_64-server-N`).
 
-The no-auth (SWNG) transition decouples these. New CL8 and CL9 systems
-keep CLN **registration** but no longer use CLN as the **package
-channel** - packages come from the SWNG mirrorlist via
-`/etc/yum.repos.d/cl.repo` (`cl-channel`) instead. `rhn-client-tools
->= 3.0.1` disables the spacewalk plugin to enforce this.
+The no-auth repository transition decouples these.
+New CL8 and CL9 systems keep CLN *registration*,
+but no longer use CLN as the *package channel* - packages come from the SWNG mirrorlist
+via `/etc/yum.repos.d/cl.repo` (`cl-channel`) instead.
+`rhn-client-tools >= 3.0.1` disables the spacewalk plugin to enforce this.
 
 The CLN-touching actors in this repo only care about the second concern:
-they exist to make the CLN package channel work during ELevate. On
-systems where the channel has been switched off they should stand down
-even though registration may still be present and valid.
+they exist to make the CLN package channel work during ELevate.
+On systems where the channel has been switched off they should stand down,
+regardless of registration state.
 
 CLOS-4056: gate those actors on `is_cln_package_channel_active()`.
 """

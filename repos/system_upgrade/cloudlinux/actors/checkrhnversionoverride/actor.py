@@ -20,11 +20,9 @@ class CheckRhnVersionOverride(Actor):
     @run_on_cloudlinux
     def process(self):
         if not is_cln_package_channel_active():
-            # CLOS-4056: versionOverride only matters when CLN is delivering
-            # packages - the upgrade rewrites it to drive channel selection.
-            # On no-auth (SWNG) systems the package channel is cl-channel,
-            # not CLN, so there is nothing to inspect or warn about even if
-            # /etc/sysconfig/rhn/up2date is still present from registration.
+            # CLOS-4056: versionOverride only matters when CLN is delivering packages,
+            # since the upgrade rewrites it to drive channel selection.
+            # On no-auth systems this does not apply.
             return
 
         up2date_config = '/etc/sysconfig/rhn/up2date'

@@ -27,10 +27,8 @@ class PinClnMirror(Actor):
     def process(self):
         """Pin CLN mirror"""
         if not is_cln_package_channel_active():
-            # CLOS-4056: pinning the CLN mirror is only meaningful when CLN
-            # is delivering packages. On no-auth (SWNG) systems packages come
-            # from cl-channel via mirrorlist, so there is nothing to pin -
-            # registration may still be in place but is irrelevant here.
+            # CLOS-4056: pinning the CLN mirror is only meaningful when CLN is delivering packages.
+            # With the no-auth repo scheme active, there's no point in doing so.
             api.current_logger().info(
                 "CLN is not the active package channel; skipping mirror pinning"
             )

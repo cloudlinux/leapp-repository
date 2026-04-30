@@ -10,10 +10,11 @@ except ImportError:
     ParserClass = configparser.ConfigParser
 
 
-# DNF plugin config path on the target system (CL8). FirstBoot runs after the
-# target OS is already in place; on CL8 the plugin package is
-# dnf-plugin-spacewalk (PES replacement for CL7's yum-rhn-plugin,
-# pes-events id=1586) and its config ships with enabled=0.
+# DNF plugin config path on the target system (CL8).
+# FirstBoot runs after the target OS is already in place;
+# on CL8 the plugin package is dnf-plugin-spacewalk
+# (PES replacement for CL7's yum-rhn-plugin, pes-events id=1586)
+# and its config ships with enabled=0.
 DEFAULT_CONFIG_PATH = '/etc/dnf/plugins/spacewalk.conf'
 
 
@@ -24,8 +25,8 @@ def _enable_plugin(config_path, parser_cls=ParserClass, log=None):
     when the plugin is not installed, and otherwise a human-readable
     problem description suitable for a Leapp report.
 
-    Absence of `config_path` is treated as a silent skip: on no-auth /
-    SWNG systems (CLOS-4056) `rhn-client-tools >= 3.0.1` Obsoletes the
+    Absence of `config_path` is treated as a silent skip: on no-auth
+    systems (CLOS-4056) `rhn-client-tools >= 3.0.1` Obsoletes the
     `dnf-plugin-spacewalk` package, so the config file is either gone by
     then, or doesn't do anything.
     """

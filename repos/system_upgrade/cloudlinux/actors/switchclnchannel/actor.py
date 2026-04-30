@@ -24,11 +24,9 @@ class SwitchClnChannel(Actor):
     @run_on_cloudlinux
     def process(self):
         if not is_cln_package_channel_active():
-            # CLOS-4056: CLN is no longer the package channel here (no-auth /
-            # SWNG mode). Skipping the channel switch is correct - packages
-            # come from cl-channel / cloudlinux9-baseos instead. The system
-            # may still be CLN-registered for licensing; that is a separate
-            # concern this actor does not need to manage.
+            # CLOS-4056: CLN package channel is inactive, so skipping the channel switch
+            # is correct - packages come from standard repositories instead.
+            # Leapp manages those without custom actions through repomaps.
             api.current_logger().info(
                 "CLN is not the active package channel; skipping channel switch"
             )
@@ -37,10 +35,9 @@ class SwitchClnChannel(Actor):
         try:
             cln_switch(target=int(get_target_major_version()))
         except CalledProcessError as e:
-            # CLOS-4056: Do not inhibit. Even on systems that ARE using CLN
-            # as the package channel, a transient CLN-server reachability
-            # problem at FirstBoot (DNS/network not up yet) shouldn't block
-            # the upgrade - the no-auth fallback repos still serve packages.
+            # Do not inhibit. Even on systems that ARE using CLN as the package channel,
+            # a transient CLN-server reachability problem at FirstBoot
+            # shouldn't block the upgrade.
             reporting.create_report(
                 [
                     reporting.Title(

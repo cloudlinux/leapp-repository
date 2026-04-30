@@ -17,10 +17,9 @@ def _write(tmp_path, body):
 def test_missing_config_is_silent_skip(tmp_path):
     """Config file absent -> silent skip: no change, no title, no report.
 
-    On no-auth / SWNG systems (CLOS-4056) the dnf-plugin-spacewalk
-    package is Obsoleted by rhn-client-tools >= 3.0.1 and the config
-    file is absent by design. Emitting a 'not found' report there
-    would be noise.
+    On no-auth systems (CLOS-4056) the dnf-plugin-spacewalk
+    package is Obsoleted by rhn-client-tools >= 3.0.1.
+    Emitting a 'not found' report there would be noise.
     """
     changed, title = _enable_plugin(str(tmp_path / "absent.conf"), ParserClass)
     assert changed is False

@@ -18,10 +18,9 @@ class ResetRhnVersionOverride(Actor):
     @run_on_cloudlinux
     def process(self):
         if not is_cln_package_channel_active():
-            # CLOS-4056: versionOverride is only set/used by the CLN package
-            # channel flow. If the system isn't on CLN for packages, leave
-            # /etc/sysconfig/rhn/up2date alone - registration metadata there
-            # is not ours to touch.
+            # CLOS-4056: versionOverride only matters when CLN is delivering packages,
+            # since the upgrade rewrites it to drive channel selection.
+            # On no-auth systems this does not apply.
             return
 
         up2date_config = '/etc/sysconfig/rhn/up2date'
