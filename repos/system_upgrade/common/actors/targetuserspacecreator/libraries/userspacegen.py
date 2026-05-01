@@ -681,16 +681,26 @@ def _prep_repository_access(context, target_userspace):
         run(['rm', '-rf', os.path.join(target_etc, 'rhsm')])
         context.copytree_from('/etc/rhsm', os.path.join(target_etc, 'rhsm'))
 
-    if os.path.isdir('/etc/sysconfig/rhn'):
+    # Set up spacewalk plugin config in the target chroot only if the plugin's
+    # config file actually exists there. Under the no-auth migration (CLOS-4056)
+    # rhn-client-tools >= 3.0.1 Obsoletes dnf-plugin-spacewalk on CL8/9, so
+    # the target userspace built from the no-auth-aware repos has no
+    # /etc/dnf/plugins/spacewalk.conf - the original unconditional open
+    # raised IOError [Errno 2] and crashed target_userspace_creator. The
+    # outer /etc/sysconfig/rhn directory check is on the source side and
+    # remains valid (CLN registration may persist for licensing/inventory),
+    # but the inner file presence is no longer guaranteed.
+    spacewalk_conf = os.path.join(target_etc, 'dnf/plugins/spacewalk.conf')
+    if os.path.isdir('/etc/sysconfig/rhn') and os.path.isfile(spacewalk_conf):
         # Set up spacewalk plugin config
-        with open(os.path.join(target_etc, 'dnf/plugins/spacewalk.conf'), 'r') as f:
+        with open(spacewalk_conf, 'r') as f:
             lines = f.readlines()
             new_lines = []
             for line in lines:
                 if 'enabled' in line:
                     line = 'enabled = 1\n'
                 new_lines.append(line)
-        with open(os.path.join(target_etc, 'dnf/plugins/spacewalk.conf'), 'w') as f:
+        with open(spacewalk_conf, 'w') as f:
             f.writelines(new_lines)
 
     if os.path.isfile('/etc/mirrorlist'):
