@@ -94,8 +94,17 @@ Conflicts:      leapp-upgrade-el7toel8
 
 %endif
 
-# Requires tools which allow switching between channels
-Requires: cln-switch-channel = 2
+# cln-switch-channel was provided by rhn-client-tools 2.x to support the
+# CLN-side channel switch. rhn-client-tools 3.0+ removes both the binary and
+# the Provide as part of the no-auth migration. The actor that invokes it
+# (switchclnchannel) is gated on is_cln_package_channel_active() (CLOS-4056),
+# so on no-auth systems it never runs and the missing binary is harmless. On
+# CLN-active systems rhn-client-tools 2.x is installed, supplying the binary
+# at runtime, so the install-time pin was redundant. Drop it to allow
+# rhn-client-tools 3.0+ on the same system as leapp-upgrade-el8toel9
+# (otherwise leapp_qa Run #54 dnf_transaction_check fails: rhn-client-tools
+# 3.x cannot be installed alongside an RPM that requires
+# cln-switch-channel = 2).
 
 # IMPORTANT: every time the requirements are changed, increment number by one
 # - same for Provides in deps subpackage
