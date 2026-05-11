@@ -26,10 +26,23 @@ CLOS-4056: gate those actors on `is_cln_package_channel_active()`.
 
 import os
 
+from leapp.libraries.stdlib import CalledProcessError, run
+
 
 RHN_SYSTEMID = '/etc/sysconfig/rhn/systemid'
 SPACEWALK_DNF_CONF = '/etc/dnf/plugins/spacewalk.conf'
 SPACEWALK_YUM_CONF = '/etc/yum/pluginconf.d/spacewalk.conf'
+
+# Packages that ship the spacewalk-protocol DNF/YUM plugin. Any one of
+# them being installed is sufficient evidence that CLN may serve
+# packages here; if none of them are present the plugin cannot run, no
+# matter what config files happen to be lying around (see
+# _spacewalk_plugin_installed below).
+_SPACEWALK_PLUGIN_PKGS = (
+    'dnf-plugin-spacewalk',
+    'python3-dnf-plugin-spacewalk',
+    'yum-rhn-plugin',
+)
 
 
 def _plugin_explicitly_disabled(conf_path):
@@ -47,21 +60,56 @@ def _plugin_explicitly_disabled(conf_path):
     return False
 
 
+def _spacewalk_plugin_installed():
+    """True iff at least one spacewalk-protocol plugin package is installed.
+
+    Done via `rpm -q --quiet <pkg>` per package: rpm returns 0 only when
+    *that* package is installed. We OR across the candidate names and
+    return on the first hit. Errors invoking rpm itself (broken database,
+    PATH issues) are treated as "not installed" - a false negative here
+    only causes CLN-related actors to stand down, which is the safe side
+    of the call.
+    """
+    for pkg in _SPACEWALK_PLUGIN_PKGS:
+        try:
+            run(['rpm', '-q', '--quiet', pkg])
+            return True
+        except CalledProcessError:
+            continue
+        except (OSError, IOError):
+            return False
+    return False
+
+
 def is_cln_package_channel_active():
     """Return True when CLN is the active package channel for this system.
 
-    A True result means the spacewalk DNF/YUM plugin is installed, not
-    explicitly disabled, and the system has CLN registration state for
-    the plugin to authenticate with. A False result means the system is
-    either deregistered or has been moved to the no-auth (SWNG) scheme,
-    so CLN-targeting actions (channel switch, mirror pinning, version
-    overrides) are not meaningful and should be skipped.
+    Requires all of:
+
+    * `/etc/sysconfig/rhn/systemid` present (CLN registration state),
+    * at least one spacewalk-protocol plugin package installed,
+    * a spacewalk plugin config file present, and
+    * none of the present plugin config files explicitly setting `enabled = 0`.
+
+    A False result means the system is either deregistered, has no
+    spacewalk plugin installed, or has been moved to the no-auth (SWNG)
+    scheme, so CLN-targeting actions (channel switch, mirror pinning,
+    version overrides) are not meaningful and should be skipped.
 
     This is a deliberately heuristic check - it asks "is CLN going to
     serve packages here", not "is the system registered with CLN" (the
     two were the same thing pre-no-auth and have since diverged).
+
+    The plugin-package check guards against stale-config edge cases: when
+    rhn-client-tools 3.0+ Obsoletes dnf-plugin-spacewalk, a leftover
+    /etc/dnf/plugins/spacewalk.conf (saved without the .rpmsave suffix,
+    or manually preserved) would otherwise make the helper claim CLN is
+    active when no plugin can actually run.
     """
     if not os.path.exists(RHN_SYSTEMID):
+        return False
+
+    if not _spacewalk_plugin_installed():
         return False
 
     configs = [p for p in (SPACEWALK_DNF_CONF, SPACEWALK_YUM_CONF) if os.path.exists(p)]
