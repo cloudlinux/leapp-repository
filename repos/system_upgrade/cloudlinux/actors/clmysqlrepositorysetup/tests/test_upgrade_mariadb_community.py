@@ -267,6 +267,51 @@ def test_mariadb_process_generates_repo_for_mariadb_org_dynamic_mirror(patch_mar
     assert [msg.file for msg in api.produce.model_instances] == ["/tmp/MariaDB_leapp_custom.repo"]
 
 
+@pytest.mark.parametrize("series", ["10.3", "10.4"])
+def test_mariadb_process_inhibits_series_with_no_target_packages(patch_mariadb_env, series):
+    """
+    CL8 -> CL9 must be inhibited for MariaDB series upstream never built for el9.
+
+    Verified 2026-07-30: for 10.3 and 10.4 the el8 repository exists but el9 is a
+    404 on rpm.mariadb.org *and* on archive.mariadb.org, so the rewritten base URL
+    points at nothing and the installed packages would have no upgrade candidate.
+
+    This path had no test coverage at all, which is how the report came to explain
+    the symptom ("not compatible with Leapp upgrade") rather than the cause.
+    """
+    api, reporting = patch_mariadb_env(source_major="8", target_major="9")
+    lib = _LibStub()
+
+    mariadb_process(
+        lib, "MariaDB",
+        _mariadb_repofile("https://rpm.mariadb.org/{0}/rhel/8/$basearch".format(series)))
+
+    assert reporting.create_report.called == 1
+    report = reporting.create_report.reports[0]
+    assert "inhibitor" in report["groups"]
+    # The report must name the repo and the URL it would have used, so the admin
+    # can see *why* rather than just being told "not compatible".
+    assert "mariadb-9" in report["summary"]
+    assert "https://rpm.mariadb.org/{0}/rhel/9/$basearch".format(series) in report["summary"]
+
+    # Existing behaviour, asserted so a later change to it is deliberate: the repo
+    # is still generated. The inhibitor is what stops the upgrade, not the absence
+    # of the repository.
+    assert [r.repoid for r in lib.custom_repo_msgs] == ["mariadb-9"]
+
+
+def test_mariadb_process_allows_series_that_upstream_still_builds(patch_mariadb_env):
+    """A series with el9 packages must not trip the no-target-packages inhibitor."""
+    api, reporting = patch_mariadb_env(source_major="8", target_major="9")
+    lib = _LibStub()
+
+    mariadb_process(
+        lib, "MariaDB", _mariadb_repofile("https://rpm.mariadb.org/11.4/rhel/8/$basearch"))
+
+    assert reporting.create_report.called == 0
+    assert lib.custom_repo_msgs[0].baseurl == "https://rpm.mariadb.org/11.4/rhel/9/$basearch"
+
+
 def test_mariadb_process_ignores_disabled_repos(patch_mariadb_env):
     """A disabled source repo is neither mapped nor reported on."""
     api, reporting = patch_mariadb_env()

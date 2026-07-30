@@ -15,6 +15,11 @@ from leapp.models import (
     RepositoryFile,
 )
 
+# MariaDB series that upstream never published for el9, so a CL8 -> CL9 upgrade has
+# nothing to move their packages to. Verified 2026-07-30: for both series, el8
+# exists but el9 is a 404 on rpm.mariadb.org *and* on archive.mariadb.org, so
+# there is no alternative host to fall back to either. Only checked for a CL8
+# source: the same rewrite on CL7 -> CL8 yields /rhel/8/, which does exist.
 OLD_MARIADB_UPSTREAM_VERSIONS_CL8 = ["10.3", "10.4"]
 
 # Distro names MariaDB uses in its repository paths. The OS major version always
@@ -150,29 +155,32 @@ def mariadb_process(lib, repofile_name, repofile_data):
             )
             continue
 
-        # MariaDB 10.4 is not compatible with Leapp upgrade
+        # This MariaDB series has no packages built for the target OS at all.
         if str(source_major) == "8" and any(
             ver in target_repo.baseurl for ver in OLD_MARIADB_UPSTREAM_VERSIONS_CL8
         ):
             reporting.create_report(
                 [
-                    reporting.Title("MariaDB version is not compatible with Leapp upgrade"),
+                    reporting.Title("Upstream MariaDB has no packages for the target system"),
                     reporting.Summary(
-                        "MariaDB is installed on this system but its version is not compatible with "
-                        "Leapp upgrade process. "
-                        "The upgrade is blocked to prevent system instability. "
-                        "This situation cannot be automatically resolved by Leapp. "
-                        "Problematic repository: {0}".format(target_repo.repoid)
+                        "The enabled upstream MariaDB repository is for a MariaDB series that was "
+                        "never published for the target system, so rewriting its base URL points at "
+                        "a repository that does not exist. The installed MariaDB packages would have "
+                        "no upgrade candidate and would be left behind at their current versions, "
+                        "which is why the upgrade is blocked. Leapp cannot resolve this "
+                        "automatically. Repository: {0}, base URL that would have been used: "
+                        "{1}".format(target_repo.repoid, target_repo.baseurl)
                     ),
                     reporting.Severity(reporting.Severity.MEDIUM),
                     reporting.Groups([reporting.Groups.REPOSITORY]),
                     reporting.Groups([reporting.Groups.INHIBITOR]),
                     reporting.Remediation(
                         hint=(
-                            "Upgrade to a more recent MariaDB version, or "
-                            "uninstall the MariaDB packages and disable the repository. "
-                            "Note that you will also need to update any bindings (e.g., PHP or Python) "
-                            "that are dependent on this MariaDB version."
+                            "Move MariaDB to a version that upstream builds for the target system "
+                            "(see https://mariadb.org/download/) before upgrading, or uninstall the "
+                            "MariaDB packages and disable the repository. Note that you will also "
+                            "need to update any bindings (e.g., PHP or Python) that are dependent on "
+                            "this MariaDB version."
                         )
                     ),
                 ]
