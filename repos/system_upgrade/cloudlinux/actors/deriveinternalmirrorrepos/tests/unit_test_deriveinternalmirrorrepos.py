@@ -92,12 +92,32 @@ def test_powertools_is_renamed_to_crb(monkeypatch, produced):
     assert repos[0].baseurl == MIRROR + '/almalinux/9/$basearch/CRB'
 
 
-def test_rename_only_touches_the_final_segment(monkeypatch, produced):
-    """A component name appearing earlier in the path must not be rewritten."""
-    baseurl = MIRROR + '/PowerTools/$releasever/$basearch/BaseOS'
+def test_rename_applies_when_component_is_not_the_final_segment(monkeypatch, produced):
+    """Mirrors differ in where the component sits. Some end the path with
+    it (.../$basearch/PowerTools) but the public AlmaLinux layout puts it
+    mid-path (.../PowerTools/$basearch/os/), and el9 really does serve that as
+    .../CRB/$basearch/os/ - so position must not decide whether we rename."""
+    baseurl = 'https://repo.almalinux.org/almalinux/$releasever/PowerTools/$basearch/os/'
+    _run(monkeypatch, [_repo('almalinux-PowerTools', baseurl)])
+
+    assert _custom_repos(produced)[0].baseurl == \
+        'https://repo.almalinux.org/almalinux/9/CRB/$basearch/os/'
+
+
+def test_rename_requires_a_whole_segment_not_a_substring(monkeypatch, produced):
+    """Only an exact path segment is a component name."""
+    baseurl = MIRROR + '/almalinux/$releasever/$basearch/PowerToolsExtra'
+    _run(monkeypatch, [_repo('almalinux-PowerTools', baseurl)])
+
+    assert _custom_repos(produced)[0].baseurl == MIRROR + '/almalinux/9/$basearch/PowerToolsExtra'
+
+
+def test_rename_never_rewrites_the_host(monkeypatch, produced):
+    baseurl = 'https://PowerTools.example.net/almalinux/$releasever/$basearch/BaseOS'
     _run(monkeypatch, [_repo('almalinux-BaseOS', baseurl)])
 
-    assert _custom_repos(produced)[0].baseurl == MIRROR + '/PowerTools/9/$basearch/BaseOS'
+    assert _custom_repos(produced)[0].baseurl == \
+        'https://PowerTools.example.net/almalinux/9/$basearch/BaseOS'
 
 
 def test_target_repoid_is_suffixed_to_avoid_clashing_with_source(monkeypatch, produced):

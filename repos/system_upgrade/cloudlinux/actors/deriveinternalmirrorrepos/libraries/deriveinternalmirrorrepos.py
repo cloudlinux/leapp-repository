@@ -40,20 +40,28 @@ COMPONENT_RENAMES = {
 }
 
 
-def _rename_final_component(baseurl, renames):
+def _rename_path_component(baseurl, renames):
     """
-    Rename the last path component of a repository URL, if it was renamed
-    between the source and target major versions.
+    Rename the path segment naming the repository component, if that component
+    was renamed between the source and target major versions.
 
-    Only the final component is considered: the same word may legitimately
-    appear earlier in a mirror path without referring to the repository.
+    Mirrors disagree on where the component sits: some end the path with it
+    (.../$basearch/PowerTools) while the public AlmaLinux layout puts it
+    mid-path (.../PowerTools/$basearch/os/). Position therefore cannot decide
+    whether to rename, so every path segment is considered.
+
+    Only whole segments match - "PowerToolsExtra" is a different repository -
+    and the scheme and host are never rewritten.
     """
-    stripped = baseurl.rstrip('/')
-    head, _, last = stripped.rpartition('/')
-    if last in renames:
-        return '{}/{}'.format(head, renames[last])
-    # Leave the URL exactly as it was, trailing slash included.
-    return baseurl
+    scheme, sep, rest = baseurl.partition('://')
+    if not sep:
+        scheme, rest = '', baseurl
+    host, slash, path = rest.partition('/')
+    if not slash:
+        return baseurl
+
+    segments = [renames.get(segment, segment) for segment in path.split('/')]
+    return '{}{}{}/{}'.format(scheme, sep, host, '/'.join(segments))
 
 
 def derive_target_baseurl(baseurl, target_major, renames=None):
@@ -66,7 +74,7 @@ def derive_target_baseurl(baseurl, target_major, renames=None):
     if renames is None:
         renames = COMPONENT_RENAMES
     retargeted = baseurl.replace(RELEASEVER_VAR, target_major)
-    return _rename_final_component(retargeted, renames)
+    return _rename_path_component(retargeted, renames)
 
 
 def _is_derivable(repo):
