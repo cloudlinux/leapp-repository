@@ -1601,3 +1601,47 @@ def test_localinstall_unchanged_for_targets_providing_their_own_system_release(m
         assert '--enablerepo' not in cmd
         assert '--disablerepo' not in cmd
         assert cmd[-1] == userspacegen._get_cloudlinux_release_urls(major)[0]
+
+
+class _CopyToRecordingContext(object):
+    """Records copy_to() destinations."""
+
+    def __init__(self):
+        self.copied = []
+
+    def copy_to(self, src, dst):
+        self.copied.append((src, dst))
+
+
+@pytest.mark.parametrize(
+    'repodirs,expected_dir',
+    (
+        # Standard system: unchanged behaviour.
+        (['/etc/yum.repos.d'], '/etc/yum.repos.d'),
+        # dnf reports several dirs including the default - prefer the default.
+        (['/etc/distro.repos.d', '/etc/yum.repos.d'], '/etc/yum.repos.d'),
+        # Relocated reposdir: the repofiles must follow it, otherwise neither
+        # _get_all_available_repoids() nor the dnf calls enabling the target
+        # repositories can see them and the upgrade stops with
+        # "There are no enabled target repositories".
+        (['/etc/yum.repos.local.d'], '/etc/yum.repos.local.d'),
+        # Deterministic pick when several non-default dirs are configured.
+        (['/etc/b.repos.d', '/etc/a.repos.d'], '/etc/a.repos.d'),
+        # dnf reported nothing usable - fall back to the default.
+        ([], '/etc/yum.repos.d'),
+    ),
+)
+def test_install_custom_repofiles_follows_reposdir(monkeypatch, repodirs, expected_dir):
+    monkeypatch.setattr(userspacegen.api, 'current_logger', logger_mocked())
+    monkeypatch.setattr(repofileutils, 'get_repodirs', lambda: list(repodirs))
+
+    context = _CopyToRecordingContext()
+    userspacegen._install_custom_repofiles(context, [
+        models.CustomTargetRepositoryFile(file='/var/lib/leapp/yum_custom_repofiles/custom.repo'),
+        models.CustomTargetRepositoryFile(file='/etc/leapp/files/vendors.d/epel.repo'),
+    ])
+
+    assert [dst for _, dst in context.copied] == [
+        os.path.join(expected_dir, 'custom.repo'),
+        os.path.join(expected_dir, 'epel.repo'),
+    ]

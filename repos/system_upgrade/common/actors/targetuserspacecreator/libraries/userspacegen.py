@@ -70,6 +70,7 @@ PROD_CERTS_FOLDER = 'prod-certs'
 PERSISTENT_PACKAGE_CACHE_DIR = '/var/lib/leapp/persistent_package_cache'
 DEDICATED_LEAPP_PART_URL = 'https://access.redhat.com/solutions/7011704'
 FMT_LIST_SEPARATOR = '\n    - '
+DEFAULT_REPOFILE_DIR = '/etc/yum.repos.d'
 
 
 def _check_deprecated_rhsm_skip():
@@ -795,8 +796,12 @@ def _prep_repository_access(context, target_userspace):
     Prepare repository access by copying all relevant certificates and configuration files to the userspace
     """
     target_etc = os.path.join(target_userspace, 'etc')
-    target_yum_repos_d = os.path.join(target_etc, 'yum.repos.d')
-    backup_yum_repos_d = os.path.join(target_etc, 'yum.repos.d.backup')
+    # The userspace inherits the host's dnf configuration, so its repository
+    # files have to live wherever that configuration points - see
+    # _get_container_repofile_dir().
+    container_repofile_dir = _get_container_repofile_dir()
+    target_yum_repos_d = os.path.join(target_userspace, container_repofile_dir.lstrip('/'))
+    backup_yum_repos_d = target_yum_repos_d + '.backup'
 
     _copy_certificates(context, target_userspace)
     # NOTE(dkubek): context.call(['update-ca-trust']) seems to not be working.
@@ -843,9 +848,15 @@ def _prep_repository_access(context, target_userspace):
     # #     RHUI clients are being installed in both scratch and target containers, users can request their package
     # #     to be installed into target userspace that might add some repos to yum.repos.d that are not in scratch.
 
+    # The freshly installed userspace only contains the distro default
+    # directory, so when the configured one differs it does not exist yet and
+    # the move below would fail.
+    if not os.path.isdir(target_yum_repos_d):
+        os.makedirs(target_yum_repos_d)
+
     # Detect files that are owned by some RPM - these cannot be deleted
     with mounting.NspawnActions(base_dir=target_userspace) as target_context:
-        files_owned_by_rpms = _get_files_owned_by_rpms(target_context, '/etc/yum.repos.d')
+        files_owned_by_rpms = _get_files_owned_by_rpms(target_context, container_repofile_dir)
 
     # Backup the target yum.repos.d so we can always copy the files installed by some RPM back into yum.repos.d
     # when we modify it
@@ -853,7 +864,7 @@ def _prep_repository_access(context, target_userspace):
 
     # Copy the yum.repos.d from scratch - preserve any custom repositories. No need to clean-up old RHUI clients,
     # we swap them for the new RHUI client in scratch (so the old one is not installed).
-    context.copytree_from('/etc/yum.repos.d', target_yum_repos_d)
+    context.copytree_from(container_repofile_dir, target_yum_repos_d)
 
     # Copy back files owned by some RPM
     for fname in files_owned_by_rpms:
@@ -1321,20 +1332,42 @@ def gather_target_repositories(context, indata):
     return target_repoids
 
 
+def _get_container_repofile_dir():
+    """
+    Return the directory the container reads repository files from.
+
+    Normally /etc/yum.repos.d, but the container inherits the host's dnf
+    configuration, so a host that relocates reposdir makes that directory
+    invisible: files written there are found neither by
+    _get_all_available_repoids(), which scans the configured reposdir, nor by
+    the dnf calls enabling the target repositories. The upgrade then stops with
+    "There are no enabled target repositories".
+
+    :rtype: str
+    """
+    repodirs = repofileutils.get_repodirs()
+    if not repodirs or DEFAULT_REPOFILE_DIR in repodirs:
+        return DEFAULT_REPOFILE_DIR
+    # get_repodirs() builds its result from a set, so sort for a stable pick.
+    return sorted(repodirs)[0]
+
+
 def _install_custom_repofiles(context, custom_repofiles):
     """
     Install the required custom repository files into the container.
 
-    The repository files are copied from the host into the /etc/yum.repos.d
-    directory into the container.
+    The repository files are copied from the host into the directory the
+    container's dnf reads repository files from - usually /etc/yum.repos.d,
+    see _get_container_repofile_dir().
 
     :param context: the container where the repofiles should be copied
     :type context: mounting.IsolatedActions class
     :param custom_repofiles: list of custom repo files
     :type custom_repofiles: List(CustomTargetRepositoryFile)
     """
+    repofile_dir = _get_container_repofile_dir()
     for rfile in custom_repofiles:
-        _dst_path = os.path.join('/etc/yum.repos.d', os.path.basename(rfile.file))
+        _dst_path = os.path.join(repofile_dir, os.path.basename(rfile.file))
         api.current_logger().debug("Copying {} to {}".format(rfile.file, _dst_path))
         context.copy_to(rfile.file, _dst_path)
 
