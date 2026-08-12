@@ -1,3 +1,6 @@
+import configparser
+import json
+
 import pytest
 
 from leapp.libraries.actor import deriveinternalmirrorrepos
@@ -42,14 +45,11 @@ def silence_logger(monkeypatch):
 
 
 @pytest.fixture
-def produced(monkeypatch):
-    """Capture api.produce() and stub out the on-disk repofile copy."""
+def produced(monkeypatch, tmpdir):
+    """Capture api.produce() and keep the repofile out of the real /var/lib."""
     out = []
     monkeypatch.setattr(deriveinternalmirrorrepos.api, 'produce', lambda *models: out.extend(models))
-    monkeypatch.setattr(
-        deriveinternalmirrorrepos, 'create_leapp_repofile_copy',
-        lambda repofile_data, repo_name: '/var/lib/leapp/yum_custom_repofiles/{}_leapp_custom.repo'.format(repo_name)
-    )
+    monkeypatch.setattr(deriveinternalmirrorrepos, 'TEMP_DIR', str(tmpdir))
     return out
 
 
@@ -195,3 +195,77 @@ def test_stock_cloudlinux_system_is_untouched(monkeypatch, produced):
     ])
 
     assert produced == []
+
+
+# --- GPG settings must survive the derivation --------------------------------
+
+def _repo_with_fields(repoid, baseurl, **extra):
+    repo = _repo(repoid, baseurl)
+    repo.additional_fields = json.dumps(extra) if extra else None
+    return repo
+
+
+@pytest.fixture
+def written(monkeypatch, tmpdir):
+    """Path of the repofile the actor writes, so its contents can be read."""
+    monkeypatch.setattr(deriveinternalmirrorrepos, 'TEMP_DIR', str(tmpdir))
+    monkeypatch.setattr(deriveinternalmirrorrepos.api, 'produce', lambda *models: None)
+    return str(tmpdir.join(deriveinternalmirrorrepos.DERIVED_REPOFILE_NAME
+                           + deriveinternalmirrorrepos.LEAPP_COPY_SUFFIX))
+
+
+def _sections(path):
+    parser = configparser.ConfigParser()
+    parser.read(path)
+    return parser
+
+
+def test_gpg_settings_are_carried_over_from_the_source_repo(monkeypatch, written):
+    """Without these the target repo has gpgcheck on by default and no key,
+    which leapp reports as an inconsistent repository."""
+    repo = _repo_with_fields('cloudlinux-os', MIRROR_REPOS['cloudlinux-os'],
+                             gpgcheck='1',
+                             gpgkey='file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CloudLinux')
+    _run(monkeypatch, [repo])
+
+    parser = _sections(written)
+    assert parser.get('cloudlinux-os-9', 'gpgcheck') == '1'
+    assert parser.get('cloudlinux-os-9', 'gpgkey') == \
+        'file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CloudLinux'
+
+
+def test_gpgcheck_disabled_at_the_source_stays_disabled(monkeypatch, written):
+    repo = _repo_with_fields('almalinux-BaseOS', MIRROR_REPOS['almalinux-BaseOS'], gpgcheck='0')
+    _run(monkeypatch, [repo])
+
+    assert _sections(written).get('almalinux-BaseOS-9', 'gpgcheck') == '0'
+
+
+def test_releasever_in_the_gpgkey_url_is_retargeted(monkeypatch, written):
+    """Mirrors serve the key per release too, so a $releasever in the key URL
+    has to move with the repository."""
+    repo = _repo_with_fields(
+        'cloudlinux-os', MIRROR_REPOS['cloudlinux-os'],
+        gpgcheck='1', gpgkey=MIRROR + '/cloudlinux/$releasever/$basearch/RPM-GPG-KEY')
+    _run(monkeypatch, [repo])
+
+    assert _sections(written).get('cloudlinux-os-9', 'gpgkey') == \
+        MIRROR + '/cloudlinux/9/$basearch/RPM-GPG-KEY'
+
+
+def test_no_gpg_settings_are_invented_when_the_source_has_none(monkeypatch, written):
+    """Defaulting to gpgcheck=0 would silently disable signature checking."""
+    _run(monkeypatch, [_repo('cloudlinux-os', MIRROR_REPOS['cloudlinux-os'])])
+
+    parser = _sections(written)
+    assert not parser.has_option('cloudlinux-os-9', 'gpgcheck')
+    assert not parser.has_option('cloudlinux-os-9', 'gpgkey')
+
+
+def test_unparsable_additional_fields_do_not_break_derivation(monkeypatch, written):
+    repo = _repo('cloudlinux-os', MIRROR_REPOS['cloudlinux-os'])
+    repo.additional_fields = 'not json'
+    _run(monkeypatch, [repo])
+
+    assert _sections(written).get('cloudlinux-os-9', 'baseurl') == \
+        MIRROR + '/cloudlinux/9/$basearch/os'
