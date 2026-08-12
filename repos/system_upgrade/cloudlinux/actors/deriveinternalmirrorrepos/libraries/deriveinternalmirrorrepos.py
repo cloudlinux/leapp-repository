@@ -1,17 +1,23 @@
-from leapp.libraries.common.cl_repofileutils import create_leapp_repofile_copy
+import json
+import os
+
+from leapp.libraries.common import utils
+from leapp.libraries.common.cl_repofileutils import LEAPP_COPY_SUFFIX, TEMP_DIR
 from leapp.libraries.common.config.version import get_target_major_version
 from leapp.libraries.stdlib import api
-from leapp.models import (
-    CustomTargetRepository,
-    CustomTargetRepositoryFile,
-    RepositoriesFacts,
-    RepositoryData,
-    RepositoryFile,
-)
+from leapp.models import CustomTargetRepository, CustomTargetRepositoryFile, RepositoriesFacts
 
 RELEASEVER_VAR = '$releasever'
 
 DERIVED_REPOFILE_NAME = 'internal_mirror'
+
+# Options copied verbatim from the source repository onto the derived one.
+#
+# Without them the derived repository has dnf's default gpgcheck and no key,
+# which leapp reports as "Inconsistent repository without GPG key". They are
+# carried over rather than guessed: the mirror serves the same content as the
+# source, so it is signed with the same key.
+GPG_OPTIONS = ('gpgcheck', 'gpgkey')
 
 # Source repository IDs we know how to retarget.
 #
@@ -97,15 +103,66 @@ def _is_derivable(repo):
     return True
 
 
+def _source_gpg_options(repo, target_major):
+    """
+    Return the source repository's GPG options, retargeted where needed.
+
+    A gpgkey may be served per release just like the packages are, so any
+    $releasever in its URL has to move with the repository.
+
+    :rtype: dict
+    """
+    try:
+        extra = json.loads(repo.additional_fields) if repo.additional_fields else {}
+    except ValueError:
+        api.current_logger().warning(
+            'Could not parse the additional fields of repository {}; deriving it'
+            ' without GPG options'.format(repo.repoid)
+        )
+        return {}
+
+    options = {}
+    for option in GPG_OPTIONS:
+        if option in extra:
+            options[option] = extra[option].replace(RELEASEVER_VAR, target_major)
+    return options
+
+
 def _derive_repo(repo, target_major):
     # Suffix the repoid so the derived repository cannot collide with the
     # source one of the same name inside the upgrade container.
-    return RepositoryData(
-        repoid='{}-{}'.format(repo.repoid, target_major),
-        name='{} (el{}, derived from {})'.format(repo.name or repo.repoid, target_major, repo.repoid),
-        baseurl=derive_target_baseurl(repo.baseurl, target_major),
-        enabled=True,
-    )
+    derived = {
+        'repoid': '{}-{}'.format(repo.repoid, target_major),
+        'name': '{} (el{}, derived from {})'.format(
+            repo.name or repo.repoid, target_major, repo.repoid),
+        'baseurl': derive_target_baseurl(repo.baseurl, target_major),
+        'enabled': '1',
+    }
+    derived.update(_source_gpg_options(repo, target_major))
+    return derived
+
+
+def _write_repofile(derived, path):
+    """
+    Write the derived repositories to a repo file.
+
+    Done here rather than through repofileutils.save_repofile() because that
+    only writes name, baseurl and enabled - it would drop the GPG options and
+    leave the target repositories reported as inconsistent.
+    """
+    parser = utils.create_parser()
+    for repo in derived:
+        section = repo['repoid']
+        parser.add_section(section)
+        for option in sorted(repo):
+            if option != 'repoid':
+                parser.set(section, option, repo[option])
+
+    if not os.path.isdir(TEMP_DIR):
+        os.makedirs(TEMP_DIR)
+    with open(path, 'w') as fp:
+        parser.write(fp)
+    return path
 
 
 def process():
@@ -124,23 +181,23 @@ def process():
 
     api.current_logger().debug(
         'Derived target repositories from the internal mirror: {}'.format(
-            ', '.join('{} -> {}'.format(repo.repoid, repo.baseurl) for repo in derived)
+            ', '.join('{} -> {}'.format(repo['repoid'], repo['baseurl']) for repo in derived)
         )
     )
 
     for repo in derived:
         api.produce(
             CustomTargetRepository(
-                repoid=repo.repoid,
-                name=repo.name,
-                baseurl=repo.baseurl,
-                enabled=repo.enabled,
+                repoid=repo['repoid'],
+                name=repo['name'],
+                baseurl=repo['baseurl'],
+                enabled=True,
             )
         )
 
     # The repoids above are only accepted if they actually resolve inside the
     # target userspace container, so ship a repofile carrying them too.
-    repofile_path = create_leapp_repofile_copy(
-        RepositoryFile(file=DERIVED_REPOFILE_NAME, data=derived), DERIVED_REPOFILE_NAME
+    repofile_path = _write_repofile(
+        derived, os.path.join(TEMP_DIR, DERIVED_REPOFILE_NAME + LEAPP_COPY_SUFFIX)
     )
     api.produce(CustomTargetRepositoryFile(file=repofile_path))
