@@ -302,6 +302,7 @@ done;
 - CLOS-4518: Fix systemd timers that replace a cron job on the new system being left disabled after the upgrade
 - CLOS-6809: Fix the upgrade being blocked on servers running MySQL Governor with MariaDB 11.4 or 11.8, where the installed database version was reported in a form that the cl-mysql repository check did not recognise
 - Determine the database module to enable from the configured cl-mysql repository, so that newly released CloudLinux MySQL and MariaDB versions are upgraded correctly without waiting for a Leapp update
+- CLOS-7025: Fix CageFS users no longer entering the cage through 'su' after the upgrade, by reinstalling the CageFS hooks on the first boot: they cannot be installed from inside the upgrade transaction, where cagefsctl is unable to run
 
 * Thu Aug 06 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.20.0-10.cloudlinux
 - CLOS-2132: Warn before the upgrade when the PostgreSQL configuration would keep the database from starting on the new system, and spell out the migration steps to run afterwards
