@@ -1,17 +1,20 @@
-import os
-
 from leapp.actors import Actor
-from leapp.libraries.stdlib import run, CalledProcessError
-from leapp.reporting import Report, create_report
-from leapp.tags import FirstBootPhaseTag, IPUWorkflowTag
+from leapp.libraries.actor import updatecagefs
 from leapp.libraries.common.cllaunch import run_on_cloudlinux
+from leapp.reporting import Report
+from leapp.tags import FirstBootPhaseTag, IPUWorkflowTag
 
 
 class UpdateCagefs(Actor):
     """
-    Force update of cagefs.
+    Reinstall the CageFS hooks and force an update of cagefs.
 
-    cagefs should reflect massive changes in system made in previous phases
+    cagefs should reflect massive changes in system made in previous phases.
+
+    The hooks need reinstalling because CageFS installs them from its own
+    %posttrans scriptlet and cagefsctl cannot run inside the upgrade
+    transaction, which on Plesk leaves CageFS users unable to enter the cage
+    through 'su'. See the actor library for the detail.
     """
 
     name = 'update_cagefs'
@@ -21,16 +24,4 @@ class UpdateCagefs(Actor):
 
     @run_on_cloudlinux
     def process(self):
-        if os.path.exists('/usr/sbin/cagefsctl'):
-            try:
-                run(['/usr/sbin/cagefsctl', '--force-update'], checked=True)
-                self.log.info('cagefs update was successful')
-            except CalledProcessError as e:
-                # cagefsctl prints errors in stdout
-                self.log.error(e.stdout)
-                self.log.error(
-                    'Command "cagefsctl --force-update" finished with exit code {}, '
-                    'the filesystem inside cagefs may be out-of-date.\n'
-                    'Check cagefsctl output above and in /var/log/cagefs-update.log, '
-                    'rerun "cagefsctl --force-update" after fixing the issues.'.format(e.exit_code)
-                )
+        updatecagefs.process()
