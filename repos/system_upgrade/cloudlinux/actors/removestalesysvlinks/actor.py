@@ -2,7 +2,7 @@ from leapp.actors import Actor
 from leapp.libraries.actor import removestalesysvlinks
 from leapp.libraries.common.cllaunch import run_on_cloudlinux
 from leapp.reporting import Report
-from leapp.tags import FirstBootPhaseTag, IPUWorkflowTag
+from leapp.tags import FinalizationPhaseTag, IPUWorkflowTag
 
 
 class RemoveStaleSysvLinks(Actor):
@@ -23,14 +23,20 @@ class RemoveStaleSysvLinks(Actor):
     exists. leapp's own systemd state transition cannot see any of this: it
     works on units, and these are files under /etc/rc.d/rc*.d.
 
-    Links whose service has no native unit on the target are left alone, since
+    Links whose service has no real unit on the target are left alone, since
     there the init script is the only way that service runs.
+
+    Runs in FinalizationPhase, against the mounted target root before the new
+    system has booted at all - the same phase leapp's own SetSystemdServicesState
+    uses. On FirstBoot the generator has already turned the links into units and
+    started the services, so removing them then only takes effect one boot later,
+    and the conversion's finish stage fails before that boot happens.
     """
 
     name = 'remove_stale_sysv_links'
     consumes = ()
     produces = (Report,)
-    tags = (FirstBootPhaseTag, IPUWorkflowTag)
+    tags = (FinalizationPhaseTag, IPUWorkflowTag)
 
     @run_on_cloudlinux
     def process(self):

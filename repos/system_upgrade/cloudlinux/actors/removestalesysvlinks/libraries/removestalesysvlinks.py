@@ -10,6 +10,13 @@ FMT_LIST_SEPARATOR = '\n    - '
 RC_DIR_GLOB = '/etc/rc.d/rc{}.d'
 RUNLEVELS = range(0, 7)
 
+# Where a real unit can be shipped or administratively placed. Deliberately NOT
+# /run/systemd: that is where systemd-sysv-generator writes the units it makes
+# FROM the very links this actor removes. Asking a booted system
+# 'is there a <name>.service?' therefore always answers yes for any SysV service
+# with an init script, which makes the check circular and the answer worthless.
+UNIT_DIRS = ['/usr/lib/systemd/system', '/etc/systemd/system']
+
 # S64mysql / K36mysql -> ('S', 'mysql')
 _LINK_RE = re.compile(r'^(?P<action>[SK])(?P<order>[0-9]{2})(?P<name>.+)$')
 
@@ -60,26 +67,80 @@ def collect_sysv_links(rc_dirs=None):
     return links, started_at_boot
 
 
-def select_shadowed_services(links, service_files):
+def scan_unit_providers(unit_dirs=None):
     """
-    Keep only the services whose SysV links are shadowed by a native unit.
+    Map every service name a real unit file provides to the unit providing it.
 
-    A SysV link is only stale when the target system has a real
-    '<name>.service' to take over. Where it does not, the init script is the
-    only way that service runs and the links must be left alone.
+    A unit provides its own name, and also every name it lists as an Alias in
+    its [Install] section - which is how the name a SysV script uses reaches a
+    differently named unit. cl-MariaDB103-server is exactly this shape: it ships
+    /etc/init.d/mysql and mariadb.service, no mysql.service, and mariadb.service
+    carries 'Alias=mysql.service'.
 
-    :return: Dictionary mapping service name to (link paths, unit state)
+    :return: Dictionary mapping a provided service name to the unit file name
+    :rtype: dict[str, str]
+    """
+    providers = {}
+    for unit_dir in unit_dirs if unit_dirs is not None else UNIT_DIRS:
+        try:
+            entries = sorted(os.listdir(unit_dir))
+        except OSError:
+            continue
+        for entry in entries:
+            if not entry.endswith('.service'):
+                continue
+            path = os.path.join(unit_dir, entry)
+            if os.path.islink(path):
+                # An alias symlink an earlier 'systemctl enable' created. The
+                # unit that actually provides the name is its target.
+                providers.setdefault(entry[:-len('.service')],
+                                     os.path.basename(os.readlink(path)))
+                continue
+            if not os.path.isfile(path):
+                continue
+            providers.setdefault(entry[:-len('.service')], entry)
+            for alias in _parse_aliases(path):
+                providers.setdefault(alias, entry)
+    return providers
+
+
+def _parse_aliases(path):
+    """Return the service names a unit file declares as [Install] Alias."""
+    aliases = []
+    section = None
+    try:
+        with open(path) as unit_file:
+            for line in unit_file:
+                line = line.strip()
+                if line.startswith('[') and line.endswith(']'):
+                    section = line[1:-1].lower()
+                    continue
+                if section != 'install' or not line.lower().startswith('alias'):
+                    continue
+                _, _, value = line.partition('=')
+                for name in value.split():
+                    if name.endswith('.service'):
+                        aliases.append(name[:-len('.service')])
+    except (OSError, UnicodeDecodeError):
+        return []
+    return aliases
+
+
+def select_shadowed_services(links, providers):
+    """
+    Keep only the services whose SysV links are shadowed by a real unit.
+
+    A SysV link is only stale when the target system has a real unit to take
+    over. Where it does not, the init script is the only way that service runs
+    and the links must be left alone.
+
+    :return: Dictionary mapping service name to (link paths, unit to enable)
     :rtype: dict[str, tuple[list[str], str]]
     """
-    states = {
-        os.path.basename(service_file.name)[:-len('.service')]: service_file.state
-        for service_file in service_files
-        if service_file.name.endswith('.service')
-    }
     return {
-        name: (paths, states[name])
+        name: (paths, providers[name])
         for name, paths in links.items()
-        if name in states
+        if name in providers
     }
 
 
@@ -88,23 +149,30 @@ def process():
     if not links:
         return
 
-    shadowed = select_shadowed_services(links, systemd.get_service_files())
+    shadowed = select_shadowed_services(links, scan_unit_providers())
     if not shadowed:
         return
 
     removed = []
     enabled = []
-    for name, (paths, state) in sorted(shadowed.items()):
+    for name, (paths, unit) in sorted(shadowed.items()):
         # The SysV link was what started this service at boot, so hand that
-        # intent to the native unit before taking the link away. Without this
-        # the service would simply stop being started.
-        if name in started_at_boot and state != 'enabled':
+        # intent to the real unit before taking the link away. Without this the
+        # service would simply stop being started.
+        #
+        # The unit, never '<name>.service': on the name a SysV script uses,
+        # 'systemctl enable' finds no native unit, reports 'redirecting to
+        # systemd-sysv-install' and calls chkconfig, which RE-CREATES the very
+        # links being removed. Enabling is idempotent, so this does not need to
+        # know whether the unit was already enabled - which cannot be read
+        # reliably against a target that is not running yet.
+        if name in started_at_boot:
             try:
-                systemd.enable_unit('{}.service'.format(name))
-                enabled.append(name)
+                systemd.enable_unit(unit)
+                enabled.append(unit)
             except CalledProcessError as err:
                 api.current_logger().warning(
-                    'Failed to enable {}.service, leaving its SysV links in place: {}'.format(name, err)
+                    'Failed to enable {}, leaving the SysV links for {} in place: {}'.format(unit, name, err)
                 )
                 continue
 
