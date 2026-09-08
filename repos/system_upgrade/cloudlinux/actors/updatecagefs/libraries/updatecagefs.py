@@ -135,6 +135,19 @@ def process():
     if not os.path.exists(CAGEFSCTL):
         return
 
+    # Scope: CageFS's %posttrans makes 25 cagefsctl calls and this restores two
+    # of them. --force-update rebuilds the skeleton and the jails and covers
+    # none of the rest - --setup-cl-selector, --update-wrappers,
+    # --reconfigure-cagefs, --isolates-regenerate, --sync-proxy-commands and
+    # the others are separate option handlers that nothing in the update path
+    # reaches. They are lost to the same crash, and the fix for that belongs in
+    # clcommon, where it restores all 25 at once: the transaction upgrades the
+    # CloudLinux venv and cllib early (around step 1.5k of 7k) and cagefs's
+    # %posttrans runs last, so the copy that crashes is the target system's, and
+    # a fixed cllib in the target repositories is enough - the source system's
+    # does not come into it. Until that ships, this covers the one call whose
+    # absence silently stops confining tenants.
+    #
     # The hooks first: the cage rebuild copies /etc from the host system, so the
     # cages get the corrected /etc/pam.d files rather than the stripped ones.
     _reinstall_hooks()
