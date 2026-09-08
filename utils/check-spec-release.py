@@ -96,13 +96,20 @@ def main():
         return 1
 
     # 1. the Makefile must report the spec's release
-    proc = subprocess.run(["make", "print_release"], capture_output=True, text=True)
+    # --no-print-directory because GNU make turns on -w for a sub-make, and this
+    # script is itself run from a make recipe (lint-spec-release) in CI. Without
+    # it stdout is "Entering directory ..." / the release / "Leaving directory
+    # ...", the last line is the directory message, and the check fails on every
+    # branch. The make[N]: filter keeps any other recursion chatter out too.
+    proc = subprocess.run(["make", "--no-print-directory", "print_release"],
+                          capture_output=True, text=True)
     if proc.returncode != 0:
         print("ERROR: `make print_release` failed:\n{0}".format(
             (proc.stderr or proc.stdout).strip()), file=sys.stderr)
         return 1
-    reported = (proc.stdout or "").strip().splitlines()
-    reported = reported[-1].strip() if reported else ""
+    reported = [line.strip() for line in (proc.stdout or "").splitlines()
+                if line.strip() and not line.startswith("make[")]
+    reported = reported[-1] if reported else ""
     if reported != declared:
         failed = True
         print("ERROR: the build would not ship the declared release.", file=sys.stderr)
