@@ -1,8 +1,63 @@
 import os
 
+from leapp import reporting
 from leapp.libraries.stdlib import api, CalledProcessError, run
 
 CAGEFSCTL = '/usr/sbin/cagefsctl'
+PAM_SU_CONFIG = '/etc/pam.d/su'
+
+
+def _pam_lve_configured():
+    """
+    Whether /etc/pam.d/su carries a pam_lve session line.
+
+    Same shape as the check cldiag runs through
+    clcommon.clconfpars.parse_pam_lve_config(): the first non-comment line
+    whose third field is pam_lve.so. Parsed here rather than imported, so that
+    a first-boot actor does not depend on the CloudLinux venv being healthy.
+
+    An unreadable config counts as not configured - it cannot be claimed as
+    configured on evidence nobody has.
+    """
+    try:
+        with open(PAM_SU_CONFIG) as f:
+            for line in f:
+                if line.startswith('#'):
+                    continue
+                fields = line.split()
+                if len(fields) >= 3 and fields[2] == 'pam_lve.so':
+                    return True
+    except (IOError, OSError):
+        return False
+    return False
+
+
+def _run_cagefsctl(option):
+    """
+    Run one cagefsctl subcommand, logging whatever went wrong.
+
+    A cagefsctl that is missing or not executable - the shape of leapp's own
+    zero-byte /sbin/new-kernel-pkg stub - raises OSError out of run() rather
+    than CalledProcessError. Neither may abort this actor and cost the steps
+    that follow.
+
+    :return: True when the command ran and exited zero
+    :rtype: bool
+    """
+    try:
+        run([CAGEFSCTL, option], checked=True)
+        return True
+    except CalledProcessError as e:
+        # cagefsctl prints errors in stdout
+        api.current_logger().error(e.stdout)
+        api.current_logger().error(
+            'Command "cagefsctl {}" finished with exit code {}.'.format(option, e.exit_code)
+        )
+    except OSError as e:
+        api.current_logger().error(
+            'Command "cagefsctl {}" could not be executed: {}'.format(option, e)
+        )
+    return False
 
 
 def _reinstall_hooks():
@@ -23,34 +78,57 @@ def _reinstall_hooks():
     The first boot is a fully booted system, where cagefsctl works, so running
     the same command here installs what the package intended. It is idempotent:
     where the hooks are intact it rewrites the very same configuration.
+
+    The exit code cannot be trusted to tell us whether that worked. cagefsctl
+    calls HooksInstall() and then exits zero unconditionally, and the pam edit
+    inside it swallows IOError and OSError into a printed message - so an
+    immutable or read-only /etc/pam.d/su leaves CageFS users uncaged behind a
+    clean exit code. Check the resulting configuration instead, and report it,
+    because a silent loss of confinement on a successful-looking upgrade is
+    not something to leave in a debug log.
     """
-    try:
-        run([CAGEFSCTL, '--hook-install'], checked=True)
+    _run_cagefsctl('--hook-install')
+
+    if _pam_lve_configured():
         api.current_logger().info('cagefs hooks were reinstalled successfully')
-    except CalledProcessError as e:
-        # cagefsctl prints errors in stdout
-        api.current_logger().error(e.stdout)
-        api.current_logger().error(
-            'Command "cagefsctl --hook-install" finished with exit code {}, '
-            'cagefs users may not enter the cage through "su".\n'
-            'Check cagefsctl output above, '
-            'rerun "cagefsctl --hook-install" after fixing the issues.'.format(e.exit_code)
-        )
+        return
+
+    api.current_logger().error(
+        'The pam_lve configuration is still missing from {} after running '
+        '"cagefsctl --hook-install", so cagefs users will not enter the cage '
+        'through "su".\n'
+        'Check cagefsctl output above, and whether {} is writable, then rerun '
+        '"cagefsctl --hook-install".'.format(PAM_SU_CONFIG, PAM_SU_CONFIG)
+    )
+    reporting.create_report([
+        reporting.Title('CageFS users may not enter the cage through "su"'),
+        reporting.Summary(
+            'The pam_lve configuration is missing from {}, so a CageFS user who'
+            ' enters a shell through "su" gets an uncaged one. CageFS installs'
+            ' that line from its own %posttrans scriptlet, which cannot run'
+            ' inside the upgrade transaction, and reinstalling the hooks on this'
+            ' boot did not restore it either. Note that'
+            ' "cagefsctl --hook-install" exits zero even when the edit fails, so'
+            ' its output may look clean.\n'
+            'Restore the configuration by running "cagefsctl --hook-install" and'
+            ' confirm it with "cldiag --all" or "cagefsctl --sanity-check".'
+            .format(PAM_SU_CONFIG)
+        ),
+        reporting.Severity(reporting.Severity.HIGH),
+        reporting.Groups([reporting.Groups.POST, reporting.Groups.SECURITY]),
+    ])
 
 
 def _force_update():
-    try:
-        run([CAGEFSCTL, '--force-update'], checked=True)
+    if _run_cagefsctl('--force-update'):
         api.current_logger().info('cagefs update was successful')
-    except CalledProcessError as e:
-        # cagefsctl prints errors in stdout
-        api.current_logger().error(e.stdout)
-        api.current_logger().error(
-            'Command "cagefsctl --force-update" finished with exit code {}, '
-            'the filesystem inside cagefs may be out-of-date.\n'
-            'Check cagefsctl output above and in /var/log/cagefs-update.log, '
-            'rerun "cagefsctl --force-update" after fixing the issues.'.format(e.exit_code)
-        )
+        return
+
+    api.current_logger().error(
+        'The filesystem inside cagefs may be out-of-date.\n'
+        'Check cagefsctl output above and in /var/log/cagefs-update.log, '
+        'rerun "cagefsctl --force-update" after fixing the issues.'
+    )
 
 
 def process():
