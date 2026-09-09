@@ -42,7 +42,7 @@ py2_byte_compile "%1" "%2"}
 
 Name:           leapp-repository
 Version:        0.20.0
-Release:        11%{?dist}.cloudlinux
+Release:        12%{?dist}.cloudlinux
 Summary:        Repositories for leapp
 
 License:        ASL 2.0
@@ -298,6 +298,9 @@ done;
 
 # DO NOT TOUCH SECTION BELOW IN UPSTREAM
 %changelog
+* Wed Sep 02 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.20.0-12.cloudlinux
+- CLOS-6911: Remove SysV runlevel links left over from the old system where the new one provides a real systemd service, which otherwise started the service outside its own unit - MariaDB was affected on servers using CloudLinux MySQL
+
 * Tue Aug 11 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.20.0-11.cloudlinux
 - CLOS-4518: Fix systemd timers that replace a cron job on the new system being left disabled after the upgrade
 - CLOS-6809: Fix the upgrade being blocked on servers running MySQL Governor with MariaDB 11.4 or 11.8, where the installed database version was reported in a form that the cl-mysql repository check did not recognise
