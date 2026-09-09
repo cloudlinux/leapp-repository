@@ -42,7 +42,7 @@ py2_byte_compile "%1" "%2"}
 
 Name:           leapp-repository
 Version:        0.20.0
-Release:        12%{?dist}.cloudlinux
+Release:        13%{?dist}.cloudlinux
 Summary:        Repositories for leapp
 
 License:        ASL 2.0
@@ -298,6 +298,9 @@ done;
 
 # DO NOT TOUCH SECTION BELOW IN UPSTREAM
 %changelog
+* Wed Sep 09 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.20.0-13.cloudlinux
+- CLOS-7025: Fix CageFS users no longer entering the cage through 'su' after the upgrade, by reinstalling the CageFS hooks on the first boot: they cannot be installed from inside the upgrade transaction, where cagefsctl is unable to run
+
 * Wed Sep 02 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.20.0-12.cloudlinux
 - CLOS-6911: Remove SysV runlevel links left over from the old system where the new one provides a real systemd service, which otherwise started the service outside its own unit - MariaDB was affected on servers using CloudLinux MySQL
 
@@ -305,7 +308,6 @@ done;
 - CLOS-4518: Fix systemd timers that replace a cron job on the new system being left disabled after the upgrade
 - CLOS-6809: Fix the upgrade being blocked on servers running MySQL Governor with MariaDB 11.4 or 11.8, where the installed database version was reported in a form that the cl-mysql repository check did not recognise
 - Determine the database module to enable from the configured cl-mysql repository, so that newly released CloudLinux MySQL and MariaDB versions are upgraded correctly without waiting for a Leapp update
-- CLOS-7025: Fix CageFS users no longer entering the cage through 'su' after the upgrade, by reinstalling the CageFS hooks on the first boot: they cannot be installed from inside the upgrade transaction, where cagefsctl is unable to run
 
 * Thu Aug 06 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.20.0-10.cloudlinux
 - CLOS-2132: Warn before the upgrade when the PostgreSQL configuration would keep the database from starting on the new system, and spell out the migration steps to run afterwards
