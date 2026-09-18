@@ -1,3 +1,4 @@
+import json
 import os
 import resource
 
@@ -173,3 +174,42 @@ def test_set_resource_limits_exceptions(monkeypatch, errortype, expected_message
 
     with pytest.raises(CommandError, match=expected_message):
         command_utils.set_resource_limits()
+
+
+def _shipped_upgrade_paths():
+    """Load the upgrade_paths.json this repository actually ships."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(here, '..', '..', 'repos', 'system_upgrade', 'common', 'files', 'upgrade_paths.json')
+    with open(os.path.normpath(path)) as fp:
+        return json.load(fp)
+
+
+def test_shipped_config_defines_cloudlinux_paths():
+    """
+    CloudLinux has to be in upgrade_paths.json or no CloudLinux upgrade starts.
+
+    Since leapp-repository 0.24.0 the target version comes from this file, keyed
+    by the source distro, and ipuworkflowconfig raises "No upgrade paths defined
+    for distro" when the key is absent - which would stop CL7 -> CL8 and
+    CL8 -> CL9 just as surely as CL9 -> CL10.
+    """
+    paths = _shipped_upgrade_paths()
+    assert 'cloudlinux' in paths
+    default = paths['cloudlinux']['default']
+
+    # Carried over unchanged from the flat config CloudLinux used before 0.24.0;
+    # retargeting either of these is a release decision, not a packaging one.
+    assert default['7.9'] == ['8.10']
+    assert default['8.10'] == ['9.4']
+
+    # CL9 -> CL10. The target has no minor: CloudLinux 10 identifies itself as
+    # plain "10" (cloudlinux-release is version 10, /etc/cloudlinux-release says
+    # "CloudLinux release 10"), unlike CL9's 9.7.
+    assert default['9'] == ['10']
+    for minor in ('9.4', '9.5', '9.6', '9.7'):
+        assert default[minor] == ['10'], minor
+
+    # Every source key must have a major-only fallback, which is what
+    # get_supported_target_versions drops to for a minor it does not know.
+    majors = {key for key in default if '.' not in key}
+    assert majors == {'7', '8', '9'}
