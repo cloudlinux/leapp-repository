@@ -1,7 +1,6 @@
 import json
 import os
 from collections import defaultdict
-from pathlib import Path
 
 import rpm
 
@@ -23,7 +22,7 @@ def get_python_sys_paths(python_interpreter):
 
     result = run([python_interpreter, '-c', 'import sys, json; print(json.dumps(sys.path))'])['stdout']
     raw_paths = json.loads(result)
-    paths = [Path(raw_path).resolve() for raw_path in raw_paths]
+    paths = [os.path.realpath(raw_path) for raw_path in raw_paths]
     return paths
 
 
@@ -66,13 +65,16 @@ def identify_files_of_pypackages(syspaths):
 
 def find_python_related(root):
     # recursively search for all files matching the given extension
-    for pattern in PYTHON_EXTENSIONS:
-        yield from root.rglob("*" + pattern)
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for filename in filenames:
+            if filename.endswith(PYTHON_EXTENSIONS):
+                yield os.path.join(dirpath, filename)
 
 
 def _should_skip_file(file):
     # pyc files are importable, but not if they are in __pycache__
-    return file.name.endswith(".pyc") and file.parent.name == "__pycache__"
+    return (os.path.basename(file).endswith(".pyc")
+            and os.path.basename(os.path.dirname(file)) == "__pycache__")
 
 
 def scan_python_files(system_paths, rpm_files):
@@ -89,13 +91,13 @@ def scan_python_files(system_paths, rpm_files):
     third_party_unowned_files = []
 
     for path in system_paths:
-        if not path.is_dir():
+        if not os.path.isdir(path):
             continue
         for file in find_python_related(path):
             if _should_skip_file(file):
                 continue
 
-            file_path = str(file)
+            file_path = file
             owner = rpm_files.get(file_path)
             if owner:
                 rpms_to_check[owner].append(file_path)

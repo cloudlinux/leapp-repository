@@ -125,10 +125,10 @@ def _try_remove_source_efi_dir():
             )
             summary = (
                 "During the upgrade, the EFI binaries and grub configuration files"
-                f" were migrated from the source OS EFI directory {efi_dir_source}"
-                f" to the target OS EFI directory {target_efi_dir}."
-                f" Leftover files were detected in {target_efi_dir}, review them"
-                " and migrate them manually."
+                " were migrated from the source OS EFI directory {}"
+                " to the target OS EFI directory {}."
+                " Leftover files were detected in {}, review them"
+                " and migrate them manually.".format(efi_dir_source, target_efi_dir, target_efi_dir)
             )
             reporting.create_report([
                 reporting.Title("Review leftover files in the source OS EFI directory"),
@@ -146,8 +146,8 @@ def _try_remove_source_efi_dir():
                 )
             )
             summary = (
-                f"Removal of the source system EFI directory at {efi_dir_source} failed."
-                " Remove the directory manually if present."
+                "Removal of the source system EFI directory at {} failed."
+                " Remove the directory manually if present.".format(efi_dir_source)
             )
             reporting.create_report([
                 reporting.Title("Failed to remove source system EFI directory"),

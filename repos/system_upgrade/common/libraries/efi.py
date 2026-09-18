@@ -234,7 +234,7 @@ def get_efi_partition():
     except StorageScanError as e:
         raise EFIError(
             'Failed to determine partition containing {}: {}'.format(EFI_MOUNTPOINT, e)
-        ) from e
+        )
 
 
 def get_efi_device():
@@ -248,14 +248,14 @@ def get_efi_device():
     try:
         efi_part = get_efi_partition()
     except EFIError as e:
-        raise EFIError('Failed to get EFI device') from e
+        raise EFIError('Failed to get EFI device')
 
     try:
         return blk_dev_from_partition(efi_part)
     except StorageScanError as e:
         raise EFIError(
             'Failed to get block device of the ESP ({}): {}'.format(efi_part, e)
-        ) from e
+        )
 
 
 def get_boot_entry(efibootinfo, label, efi_bin_path):
@@ -306,14 +306,14 @@ def add_boot_entry(label, efi_bin_path):
     except StorageScanError as e:
         raise EFIError(
             'Failed to determine partition number of the ESP: {}'.format(e)
-        ) from e
+        )
     try:
         # not using get_efi_device() here saves one call to external command
         efi_dev = blk_dev_from_partition(esp)
     except StorageScanError as e:
         raise EFIError(
             'Failed to determine the device containing ESP: {}'.format(e)
-        ) from e
+        )
 
     cmd = [
         '/usr/sbin/efibootmgr',
@@ -328,15 +328,15 @@ def add_boot_entry(label, efi_bin_path):
         run(cmd)
     except CalledProcessError as e:
         raise EFIError(
-            f"Unable to add a new UEFI bootloader entry '{label}' for EFI binary at {efi_bin_path}."
-        ) from e
+            "Unable to add a new UEFI bootloader entry '{}' for EFI binary at {}.".format(label, efi_bin_path)
+        )
 
     # sanity check it's really there
     efibootinfo = EFIBootInfo()
     new_entry = get_boot_entry(efibootinfo, label, efi_bin_path)
     if new_entry is None:
         raise EFIError(
-            f"Unable to find the new UEFI bootloader entry '{label}' after adding it."
+            "Unable to find the new UEFI bootloader entry '{}' after adding it.".format(label)
         )
     return new_entry
 
@@ -346,8 +346,8 @@ def remove_boot_entry(boot_number):
         run(['/usr/sbin/efibootmgr', '--delete-bootnum', '--bootnum', boot_number])
     except CalledProcessError as e:
         raise EFIError(
-            f"Failed to remove boot entry with boot number '{boot_number}'"
-        ) from e
+            "Failed to remove boot entry with boot number '{}'".format(boot_number)
+        )
 
 
 def set_bootnext(boot_number):
@@ -359,4 +359,4 @@ def set_bootnext(boot_number):
     try:
         run(['/usr/sbin/efibootmgr', '--bootnext', boot_number])
     except CalledProcessError:
-        raise EFIError(f'Could not set boot entry {boot_number} as BootNext.')
+        raise EFIError('Could not set boot entry {} as BootNext.'.format(boot_number))

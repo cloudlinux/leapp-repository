@@ -17,7 +17,7 @@ def _get_rules_file_path():
     return api.get_actor_file_path(NVMF_INITQUEUE_RULES_FILENAME)
 
 
-def is_livemode_enabled() -> bool:
+def is_livemode_enabled():
     livemode_config = next(api.consume(LiveModeConfig), None)
     if livemode_config and livemode_config.is_enabled:
         return True

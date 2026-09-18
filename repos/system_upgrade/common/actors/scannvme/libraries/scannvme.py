@@ -19,7 +19,7 @@ class NVMEMissingTransport(Exception):
 def _get_transport_type(device_path):
     tpath = os.path.join(device_path, 'transport')
     if not os.path.exists(tpath):
-        raise NVMEMissingTransport(f'The {tpath} file is missing.')
+        raise NVMEMissingTransport('The {} file is missing.'.format(tpath))
 
     transport = read_file(tpath).strip()
     if not transport:

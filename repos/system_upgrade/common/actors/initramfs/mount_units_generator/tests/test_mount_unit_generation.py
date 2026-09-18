@@ -228,15 +228,11 @@ def test_copy_units_mixed_content(monkeypatch):
             assert file_path == '/container/usr/lib/systemd/system/local-fs.target.requires/unit2.mount'
             self.removal_called = True
 
-    def mock_makedirs(dst_dir, mode=0o777, exist_ok=False):
-        assert exist_ok
-        assert mode == 0o755
+    created_dirs = []
 
-        allowed_paths = [
-            '/container/usr/lib/systemd/system',
-            '/container/usr/lib/systemd/system/local-fs.target.requires'
-        ]
-        assert dst_dir.rstrip('/') in allowed_paths
+    def mock_makedirs(dst_dir, mode=0o777):
+        assert mode == 0o755
+        created_dirs.append(dst_dir.rstrip('/'))
 
     monkeypatch.setattr(os, 'walk', mock_walk)
     monkeypatch.setattr(os, 'makedirs', mock_makedirs)
@@ -267,6 +263,9 @@ def test_copy_units_mixed_content(monkeypatch):
     ]
     assert sorted(files) == sorted(expected_files)
     assert mount_unit_generator._delete_file.removal_called
+    # The parent is missing and must be created; local-fs.target.requires already
+    # exists and must not be recreated.
+    assert created_dirs == ['/container/usr/lib/systemd/system']
 
 
 class CurrentActorMockedWithActorFolder(CurrentActorMocked):

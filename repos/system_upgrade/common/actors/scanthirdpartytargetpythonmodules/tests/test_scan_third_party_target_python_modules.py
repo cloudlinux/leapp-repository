@@ -1,5 +1,5 @@
-from collections import defaultdict, namedtuple
-from pathlib import Path
+import os
+from collections import defaultdict
 
 import pytest
 
@@ -8,15 +8,7 @@ from leapp.libraries.common.testutils import logger_mocked
 from leapp.libraries.stdlib import api
 from leapp.models import DistributionSignedRPM
 
-Parent = namedtuple('Parent', ['name'])
-MockFile = namedtuple('MockFile', ['name', 'parent', 'path'])
-
-
-def _mock_file_str(self):
-    return self.path
-
-
-MockFile.__str__ = _mock_file_str
+SITE_PACKAGES = '/usr/lib/python3.9/site-packages'
 
 
 @pytest.mark.parametrize('rhel_version,expected_python', [
@@ -41,29 +33,26 @@ def test_get_python_binary_for_rhel(rhel_version, expected_python):
     ('module.so', 'site-packages', False),
 ])
 def test_should_skip_file(file_name, parent_name, should_skip):
-    mock_file = MockFile(name=file_name, parent=Parent(name=parent_name), path='/dummy/path')
-    assert scanthirdpartytargetpythonmodules._should_skip_file(mock_file) is should_skip
+    path = os.path.join('/usr/lib/python3.9', parent_name, file_name)
+    assert scanthirdpartytargetpythonmodules._should_skip_file(path) is should_skip
 
 
 def test_scan_python_files(monkeypatch):
-    system_paths = [Path('/usr/lib/python3.9/site-packages')]
+    system_paths = [SITE_PACKAGES]
     rpm_files = {
         '/usr/lib/python3.9/site-packages/rpm_module.py': 'rpm-package',
         '/usr/lib/python3.9/site-packages/another.py': 'another-rpm',
     }
 
-    def mock_is_dir(self):
-        return True
-
     def mock_find_python_related(root):
         files = [
-            MockFile('rpm_module.py', Parent('site-packages'), '/usr/lib/python3.9/site-packages/rpm_module.py'),
-            MockFile('unowned.py', Parent('site-packages'), '/usr/lib/python3.9/site-packages/unowned.py'),
-            MockFile('another.py', Parent('site-packages'), '/usr/lib/python3.9/site-packages/another.py'),
+            os.path.join(SITE_PACKAGES, 'rpm_module.py'),
+            os.path.join(SITE_PACKAGES, 'unowned.py'),
+            os.path.join(SITE_PACKAGES, 'another.py'),
         ]
         return iter(files)
 
-    monkeypatch.setattr(Path, 'is_dir', mock_is_dir)
+    monkeypatch.setattr(os.path, 'isdir', lambda path: True)
     monkeypatch.setattr(scanthirdpartytargetpythonmodules, 'find_python_related', mock_find_python_related)
 
     rpms_to_check, unowned = scanthirdpartytargetpythonmodules.scan_python_files(system_paths, rpm_files)
@@ -76,16 +65,13 @@ def test_scan_python_files(monkeypatch):
 
 @pytest.mark.parametrize('path_exists,mock_files', [
     (False, None),
-    (True, [MockFile('module.pyc', Parent('__pycache__'), '/usr/lib/python3.9/site-packages/__pycache__/module.pyc')]),
+    (True, ['/usr/lib/python3.9/site-packages/__pycache__/module.pyc']),
 ])
 def test_scan_python_files_filtering(monkeypatch, path_exists, mock_files):
-    system_paths = [Path('/usr/lib/python3.9/site-packages')]
+    system_paths = [SITE_PACKAGES]
     rpm_files = {}
 
-    def mock_is_dir(self):
-        return path_exists
-
-    monkeypatch.setattr(Path, 'is_dir', mock_is_dir)
+    monkeypatch.setattr(os.path, 'isdir', lambda path: path_exists)
 
     if mock_files is not None:
         def mock_find_python_related(root):

@@ -37,6 +37,7 @@ lint-cloudlinux GitHub Action so the two stay in sync.
 
 from __future__ import print_function
 
+import ast
 import io
 import os
 import re
@@ -58,6 +59,22 @@ _EXCLUDED_PREFIXES = (
 # because the rewritten source is only ever parsed, never executed or written.
 _FUTURE_PRINT_RE = re.compile(r"^\s*from\s+__future__\s+import\s+.*\bprint_function\b", re.M)
 _PRINT_CALL_RE = re.compile(r"\bprint(\s*\()")
+
+# Constructs that the 2.7 grammar happily parses and that then fail at runtime, so
+# the grammar check alone cannot see them. Imports inside a try/except are exempt:
+# `try: import ConfigParser except ImportError: import configparser` is the correct
+# way to write this and appears in our own actors.
+_PY3_ONLY_MODULES = frozenset((
+    'pathlib', 'typing', 'dataclasses', 'asyncio', 'concurrent', 'contextvars',
+    'statistics', 'secrets', 'configparser', 'queue', 'unittest.mock',
+))
+_PY3_ONLY_CALLS = {
+    'subprocess.run': 'subprocess.run() arrived in python3.5',
+    'shutil.which': 'shutil.which() arrived in python3.3',
+}
+_PY3_ONLY_KWARGS = {
+    'exist_ok': 'os.makedirs(exist_ok=...) arrived in python3.2',
+}
 
 _PARSO_HINT = (
     "This check needs parso 0.7.1, the last release carrying the Python 2.7\n"
@@ -107,6 +124,57 @@ def _walk_paths(roots):
                     yield path
 
 
+def _imports_under_try(tree):
+    """Return the set of import node ids that sit anywhere inside a try statement."""
+    exempt = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Try):
+            for child in ast.walk(node):
+                if isinstance(child, (ast.Import, ast.ImportFrom)):
+                    exempt.add(id(child))
+    return exempt
+
+
+def _check_runtime_constructs(path):
+    """Return a list of (lineno, message) for python3-only runtime constructs."""
+    with io.open(path, encoding="utf-8", errors="replace") as fp:
+        source = fp.read()
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        # The grammar check reports this file already.
+        return []
+
+    hits = []
+    exempt = _imports_under_try(tree)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)) and id(node) not in exempt:
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            else:
+                names = [node.module or ""]
+            for name in names:
+                if name.split(".")[0] in _PY3_ONLY_MODULES or name in _PY3_ONLY_MODULES:
+                    hits.append((node.lineno, "{} is not in the python2.7 stdlib".format(name)))
+        elif isinstance(node, ast.Call):
+            for keyword in node.keywords:
+                if keyword.arg in _PY3_ONLY_KWARGS:
+                    hits.append((node.lineno, _PY3_ONLY_KWARGS[keyword.arg]))
+            dotted = _dotted_name(node.func)
+            if dotted in _PY3_ONLY_CALLS:
+                hits.append((node.lineno, _PY3_ONLY_CALLS[dotted]))
+    return hits
+
+
+def _dotted_name(node):
+    if isinstance(node, ast.Attribute):
+        prefix = _dotted_name(node.value)
+        return "{}.{}".format(prefix, node.attr) if prefix else ""
+    if isinstance(node, ast.Name):
+        return node.id
+    return ""
+
+
 def _check_file(grammar, path):
     """Return a list of (lineno, message) for py2.7 syntax errors in path."""
     with io.open(path, encoding="utf-8", errors="replace") as fp:
@@ -133,7 +201,8 @@ def main(argv):
 
     bad = 0
     for path in _walk_paths(paths):
-        for lineno, message in _check_file(grammar, path):
+        findings = _check_file(grammar, path) + _check_runtime_constructs(path)
+        for lineno, message in sorted(findings):
             print("{}:{}: {}".format(path, lineno, message))
             bad += 1
 

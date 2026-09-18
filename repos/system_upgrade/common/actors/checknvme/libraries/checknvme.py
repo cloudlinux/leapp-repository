@@ -1,6 +1,5 @@
 import os
 from collections import defaultdict
-from typing import List
 
 from leapp import reporting
 from leapp.exceptions import StopActorExecutionError
@@ -45,22 +44,22 @@ class NVMEDeviceCollection:
     def __init__(self):
         self.device_by_transport = defaultdict(list)
 
-    def add_device(self, device: NVMEDevice):
+    def add_device(self, device):
         self.device_by_transport[device.transport].append(device)
 
-    def add_devices(self, devices: List[NVMEDevice]):
+    def add_devices(self, devices):
         for device in devices:
             self.add_device(device)
 
-    def get_devices_by_transport(self, transport: str) -> List[NVMEDevice]:
+    def get_devices_by_transport(self, transport):
         return self.device_by_transport[transport]
 
     @property
-    def handled_transport_types(self) -> List[str]:
+    def handled_transport_types(self):
         return SAFE_TRANSPORT_TYPES
 
     @property
-    def unhandled_devices(self) -> List[NVMEDevice]:
+    def unhandled_devices(self):
         unhandled_devices = []
         for transport, devices in self.device_by_transport.items():
             if transport not in self.handled_transport_types:
@@ -68,7 +67,7 @@ class NVMEDeviceCollection:
         return unhandled_devices
 
     @property
-    def fabrics_devices(self) -> List[NVMEDevice]:
+    def fabrics_devices(self):
         fabrics_devices = []
         for transport in FABRICS_TRANSPORT_TYPES:
             fabrics_devices.extend(self.device_by_transport[transport])
@@ -90,14 +89,14 @@ def _format_list(data, sep=FMT_LIST_SEPARATOR, callback_sort=sorted, limit=0):
     return ''.join(res)
 
 
-def is_livemode_enabled() -> bool:
+def is_livemode_enabled():
     livemode_config = next(api.consume(LiveModeConfig), None)
     if livemode_config and livemode_config.is_enabled:
         return True
     return False
 
 
-def get_current_cmdline_arg_value(arg_name: str):
+def get_current_cmdline_arg_value(arg_name):
     cmdline = next(api.consume(KernelCmdline), None)
 
     if not cmdline:
@@ -182,7 +181,7 @@ def _report_kernel_cmdline_might_be_modified_unnecessarily():
     ])
 
 
-def _tasks_copy_files_into_container(nvme_device_collection: NVMEDeviceCollection):
+def _tasks_copy_files_into_container(nvme_device_collection):
     """
     Tasks needed to modify target userspace container and the upgrade initramfs.
     """
@@ -200,7 +199,7 @@ def _tasks_copy_files_into_container(nvme_device_collection: NVMEDeviceCollectio
     )
 
 
-def _tasks_for_kernel_cmdline(nvme_device_collection: NVMEDeviceCollection):
+def _tasks_for_kernel_cmdline(nvme_device_collection):
     upgrade_cmdline_args = []
     target_cmdline_args = []
 
@@ -247,7 +246,7 @@ def _tasks_for_kernel_cmdline(nvme_device_collection: NVMEDeviceCollection):
     api.produce(TargetKernelCmdlineArgTasks(to_add=target_cmdline_args))
 
 
-def register_upgrade_tasks(nvme_device_collection: NVMEDeviceCollection):
+def register_upgrade_tasks(nvme_device_collection):
     """
     Register tasks that should happen during IPU to handle NVMe devices
     successfully.
@@ -262,9 +261,9 @@ def register_upgrade_tasks(nvme_device_collection: NVMEDeviceCollection):
     api.produce(UpgradeInitramfsTasks(include_dracut_modules=[DracutModule(name='nvmf')]))
 
 
-def report_missing_configs_for_fabrics_devices(nvme_info: NVMEInfo,
-                                               nvme_device_collection: NVMEDeviceCollection,
-                                               max_devices_in_report: int = 3) -> bool:
+def report_missing_configs_for_fabrics_devices(nvme_info,
+                                               nvme_device_collection,
+                                               max_devices_in_report=3):
     missing_configs = []
     if not nvme_info.hostid:
         missing_configs.append('/etc/nvme/hostid')
@@ -300,7 +299,7 @@ def report_missing_configs_for_fabrics_devices(nvme_info: NVMEInfo,
     ])
 
 
-def get_devices_present_in_fstab() -> List[str]:
+def get_devices_present_in_fstab():
     storage_info = next(api.consume(StorageInfo), None)
 
     if not storage_info:
@@ -310,7 +309,7 @@ def get_devices_present_in_fstab() -> List[str]:
     return {os.path.realpath(entry.fs_spec) for entry in storage_info.fstab}
 
 
-def check_unhandled_devices_present_in_fstab(nvme_device_collection: NVMEDeviceCollection) -> bool:
+def check_unhandled_devices_present_in_fstab(nvme_device_collection):
     """Check if any unhandled NVMe devices are present in fstab.
 
     Args:
