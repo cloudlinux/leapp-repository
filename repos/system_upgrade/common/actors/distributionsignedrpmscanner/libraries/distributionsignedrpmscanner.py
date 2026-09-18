@@ -1,31 +1,9 @@
-import json
-import os
-
-from leapp.exceptions import StopActorExecutionError
 from leapp.libraries.common import rhui
-from leapp.libraries.common.config import get_env
+from leapp.libraries.common.config import get_env, get_source_distro_id
+from leapp.libraries.common.distro import get_distribution_data
 from leapp.libraries.stdlib import api
-from leapp.models import DistributionSignedRPM, InstalledRedHatSignedRPM, InstalledRPM, InstalledUnsignedRPM, VendorSignatures
-
-
-def get_distribution_data(distribution):
-    distributions_path = api.get_common_folder_path('distro')
-
-    distribution_config = os.path.join(distributions_path, distribution, 'gpg-signatures.json')
-    if os.path.exists(distribution_config):
-        with open(distribution_config) as distro_config_file:
-            distro_config_json = json.load(distro_config_file)
-            distro_keys = distro_config_json.get('keys', [])
-            # distro_packager = distro_config_json.get('packager', 'not-available')
-    else:
-        raise StopActorExecutionError(
-            'Cannot find distribution signature configuration.',
-            details={'Problem': 'Distribution {} was not found in {}.'.format(distribution, distributions_path)})
-
-    for siglist in api.consume(VendorSignatures):
-        distro_keys.extend(siglist.sigs)
-
-    return distro_keys
+from leapp.models import DistributionSignedRPM, InstalledRPM, InstalledUnsignedRPM, ThirdPartyRPM
+from leapp.utils.deprecation import suppress_deprecation
 
 
 def is_distro_signed(pkg, distro_keys):
@@ -52,26 +30,25 @@ def is_exceptional(pkg, allowlist):
     return pkg.name == 'gpg-pubkey' or pkg.name.startswith('katello-ca-consumer') or pkg.name in allowlist
 
 
+@suppress_deprecation(InstalledUnsignedRPM)
 def process():
-    distribution = api.current_actor().configuration.os_release.release_id
-    distro_keys = get_distribution_data(distribution)
+    distro = get_source_distro_id()
+    distro_keys = get_distribution_data(distro).get('keys', [])
     all_signed = get_env('LEAPP_DEVEL_RPMS_ALL_SIGNED', '0') == '1'
     rhui_pkgs = rhui.get_all_known_rhui_pkgs_for_current_upg()
 
     signed_pkgs = DistributionSignedRPM()
-    rh_signed_pkgs = InstalledRedHatSignedRPM()
     unsigned_pkgs = InstalledUnsignedRPM()
+    thirdparty_pkgs = ThirdPartyRPM()
 
     for rpm_pkgs in api.consume(InstalledRPM):
         for pkg in rpm_pkgs.items:
             if all_signed or is_distro_signed(pkg, distro_keys) or is_exceptional(pkg, rhui_pkgs):
                 signed_pkgs.items.append(pkg)
-                # TODO: rh_signed_pkgs isn't used anywhere ...
-                if distribution == 'rhel':
-                    rh_signed_pkgs.items.append(pkg)
-                continue
-            unsigned_pkgs.items.append(pkg)
+            else:
+                unsigned_pkgs.items.append(pkg)
+                thirdparty_pkgs.items.append(pkg)
 
     api.produce(signed_pkgs)
-    api.produce(rh_signed_pkgs)
     api.produce(unsigned_pkgs)
+    api.produce(thirdparty_pkgs)

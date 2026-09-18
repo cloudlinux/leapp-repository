@@ -6,7 +6,7 @@ The library is supposed to be used only for testing purposes. Import of the
 library is expected only inside test files.
 """
 
-from leapp.models import EnvVar, IPUConfig, OSRelease, Version
+from leapp.models import Distro, EnvVar, IPUConfig, IPUSourceToPossibleTargets, OSRelease, Version
 
 CONFIG = IPUConfig(
     leapp_env_vars=[EnvVar(name='LEAPP_DEVEL', value='0')],
@@ -19,10 +19,19 @@ CONFIG = IPUConfig(
     ),
     version=Version(
         source='7.6',
-        target='8.0'
+        target='8.0',
+        virtual_source_version='7.6',
+        virtual_target_version='8.0'
     ),
     architecture='x86_64',
     kernel='3.10.0-957.43.1.el7.x86_64',
+    supported_upgrade_paths=[
+        IPUSourceToPossibleTargets(source_version='7.6', target_versions=['8.0'])
+    ],
+    distro=Distro(
+        source='rhel',
+        target='rhel',
+    ),
 )
 
 CONFIG_NO_NETWORK_RENAMING = IPUConfig(
@@ -36,10 +45,19 @@ CONFIG_NO_NETWORK_RENAMING = IPUConfig(
     ),
     version=Version(
         source='7.6',
-        target='8.0'
+        target='8.0',
+        virtual_source_version='7.6',
+        virtual_target_version='8.0'
     ),
     architecture='x86_64',
     kernel='3.10.0-957.43.1.el7.x86_64',
+    supported_upgrade_paths=[
+        IPUSourceToPossibleTargets(source_version='7.6', target_versions=['8.0'])
+    ],
+    distro=Distro(
+        source='rhel',
+        target='rhel',
+    ),
 )
 
 CONFIG_ALL_SIGNED = IPUConfig(
@@ -53,10 +71,19 @@ CONFIG_ALL_SIGNED = IPUConfig(
     ),
     version=Version(
         source='7.6',
-        target='8.0'
+        target='8.0',
+        virtual_source_version='7.6',
+        virtual_target_version='8.0'
     ),
     architecture='x86_64',
     kernel='3.10.0-957.43.1.el7.x86_64',
+    supported_upgrade_paths=[
+        IPUSourceToPossibleTargets(source_version='7.6', target_versions=['8.0'])
+    ],
+    distro=Distro(
+        source='rhel',
+        target='rhel',
+    ),
 )
 
 CONFIG_S390X = IPUConfig(
@@ -69,8 +96,17 @@ CONFIG_S390X = IPUConfig(
     ),
     version=Version(
         source='7.6',
-        target='8.0'
+        target='8.0',
+        virtual_source_version='7.6',
+        virtual_target_version='8.0'
     ),
     architecture='s390x',
     kernel='3.10.0-957.43.1.el7.x86_64',
+    supported_upgrade_paths=[
+        IPUSourceToPossibleTargets(source_version='7.6', target_versions=['8.0'])
+    ],
+    distro=Distro(
+        source='rhel',
+        target='rhel',
+    ),
 )

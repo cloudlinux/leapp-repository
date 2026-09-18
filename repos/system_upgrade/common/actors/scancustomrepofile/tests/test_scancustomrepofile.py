@@ -1,5 +1,8 @@
 import os
 
+import pytest
+
+from leapp.exceptions import StopActorExecutionError
 from leapp.libraries.actor import scancustomrepofile
 from leapp.libraries.common import repofileutils
 from leapp.libraries.common.testutils import produce_mocked
@@ -29,7 +32,7 @@ _CUSTOM_REPOS = [
 _CUSTOM_REPO_FILE_MSG = CustomTargetRepositoryFile(file=scancustomrepofile.CUSTOM_REPO_PATH)
 
 
-class LoggerMocked(object):
+class LoggerMocked:
     def __init__(self):
         self.infomsg = None
         self.debugmsg = None
@@ -81,3 +84,23 @@ def test_empty_repofile_exists(monkeypatch):
     msg = "The {} file exists, but is empty. Nothing to do.".format(scancustomrepofile.CUSTOM_REPO_PATH)
     assert api.current_logger.infomsg == msg
     assert not api.produce.called
+
+
+def test_invalid_repofile_raises_stop_actor_error(monkeypatch):
+    def _mocked_parse_repofile_raises(fpath):
+        raise repofileutils.InvalidRepoDefinition(
+            msg='mocked error',
+            repofile=fpath,
+            repoid='invalid-repo'
+        )
+
+    monkeypatch.setattr(os.path, 'isfile', lambda dummy: True)
+    monkeypatch.setattr(api, 'produce', produce_mocked())
+    monkeypatch.setattr(repofileutils, 'parse_repofile', _mocked_parse_repofile_raises)
+    monkeypatch.setattr(api, 'current_logger', LoggerMocked())
+
+    with pytest.raises(StopActorExecutionError) as exc_info:
+        scancustomrepofile.process()
+
+    assert 'Failed to parse custom repository definition' in str(exc_info.value)
+    assert scancustomrepofile.CUSTOM_REPO_PATH in exc_info.value.details['hint']

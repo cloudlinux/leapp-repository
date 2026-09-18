@@ -7,9 +7,9 @@ from leapp.tags import ChecksPhaseTag, IPUWorkflowTag
 
 class FirewalldCheckAllowZoneDrifting(Actor):
     """
-    This actor will check if AllowZoneDrifiting=yes in firewalld.conf. This
+    This actor will check if AllowZoneDrifting=yes in firewalld.conf. This
     option has been removed in RHEL-9 and behavior is as if
-    AllowZoneDrifiting=no.
+    AllowZoneDrifting=no.
     """
 
     name = 'firewalld_check_allow_zone_drifting'
@@ -37,13 +37,18 @@ class FirewalldCheckAllowZoneDrifting(Actor):
             reporting.Summary('Firewalld has enabled configuration option '
                               '"{conf_key}" which has been removed in RHEL-9. '
                               'New behavior is as if "{conf_key}" was set to "no".'.format(
-                                  conf_key='AllowZoneDrifiting')),
+                                  conf_key='AllowZoneDrifting')),
             reporting.Severity(reporting.Severity.HIGH),
             reporting.Groups([reporting.Groups.SANITY, reporting.Groups.FIREWALL]),
             reporting.Groups([reporting.Groups.INHIBITOR]),
             reporting.ExternalLink(
                 url='https://access.redhat.com/articles/4855631',
                 title='Changes in firewalld related to Zone Drifting'),
+            reporting.ExternalLink(
+                url='https://access.redhat.com/solutions/6969130',
+                title='Leapp Preupgrade check fails with error - '
+                      '"Inhibitor: Firewalld Configuration AllowZoneDrifting Is Unsupported".'
+            ),
             reporting.Remediation(
                 hint='Set AllowZoneDrifting=no in /etc/firewalld/firewalld.conf',
                 commands=[['sed', '-i', 's/^AllowZoneDrifting=.*/AllowZoneDrifting=no/',

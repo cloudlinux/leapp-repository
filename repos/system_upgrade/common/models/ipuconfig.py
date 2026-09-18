@@ -33,6 +33,46 @@ class Version(Model):
     target = fields.String()
     """Version of the target system. E.g. '8.2.'."""
 
+    virtual_source_version = fields.String()
+    """
+    Source OS version used when checking whether to execute version-dependent code.
+
+    On RHEL and other systems that have version of the form MINOR.MAJOR, `virtual_source_version`
+    matches `source_version`.
+
+    CentOS has version of the form MAJOR, lacking the minor version number. The
+    `virtual_source_version` value is obtained by combining CentOS major
+    version number with a minor version number stored internally in the upgrade_paths.json file.
+    """
+
+    virtual_target_version = fields.String()
+    """ See :py:attr:`virtual_source_version` """
+
+
+class IPUSourceToPossibleTargets(Model):
+    """
+    Represents upgrade paths from a source system version.
+
+    This model is not supposed to be produced nor consumed directly by any actor.
+    """
+    topic = SystemInfoTopic
+
+    source_version = fields.String()
+    """Source system version."""
+
+    target_versions = fields.List(fields.String())
+    """List of defined target system versions for the `source_version` system."""
+
+
+class Distro(Model):
+    topic = SystemInfoTopic
+
+    source = fields.String()
+    """Release id of the source system (e.g. rhel, centos, almalinux)."""
+
+    target = fields.String()
+    """Release id of the target system (e.g. rhel, centos, almalinux)."""
+
 
 class IPUConfig(Model):
     """
@@ -59,3 +99,13 @@ class IPUConfig(Model):
 
     flavour = fields.StringEnum(('default', 'saphana'), default='default')
     """Flavour of the upgrade - Used to influence changes in supported source/target release"""
+
+    supported_upgrade_paths = fields.List(fields.Model(IPUSourceToPossibleTargets))
+    """
+    List of supported upgrade paths.
+
+    The list contains only upgrade paths for the `flavour` of the source system.
+    """
+
+    distro = fields.Model(Distro)
+    """Release IDs of the source and target system."""

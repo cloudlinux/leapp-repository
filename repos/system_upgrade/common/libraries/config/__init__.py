@@ -1,9 +1,10 @@
 from leapp.exceptions import StopActorExecutionError
 from leapp.libraries.stdlib import api
+from leapp.utils.deprecation import deprecated
 
 # The devel variable for target product channel can also contain 'beta'
 SUPPORTED_TARGET_CHANNELS = {'ga', 'e4s', 'eus', 'aus'}
-CONSUMED_DATA_STREAM_ID = '3.0'
+CONSUMED_DATA_STREAM_ID = '4.0'
 
 
 def get_env(name, default=None):
@@ -97,3 +98,62 @@ def get_target_product_channel(default='ga'):
 def get_consumed_data_stream_id():
     """Get the identifier of the asset family used by leapp."""
     return CONSUMED_DATA_STREAM_ID
+
+
+@deprecated(
+    since="2026-02-10",
+    message="Use get_source_distro_id or get_target_distro_id instead.",
+)
+def get_distro_id():
+    """
+    Retrieve the distro ID of the source system.
+
+    This is the ID string from /etc/os_release.
+    E.g. "rhel" for Red Hat Enterprise Linux
+
+    :return: The ID string from /etc/os_release
+    :rtype: str
+    """
+    return api.current_actor().configuration.distro.source
+
+
+def get_source_distro_id():
+    """
+    Retrieve the distro ID of the source system.
+
+    This is the ID string from /etc/os_release.
+    E.g. "rhel" for Red Hat Enterprise Linux
+
+    :return: The ID string from /etc/os_release
+    :rtype: str
+    """
+    return api.current_actor().configuration.distro.source
+
+
+def get_target_distro_id():
+    """
+    Retrieve the distro ID for the target system.
+
+    The ID follows the naming convention that is used in /etc/os_release files.
+    E.g. "rhel" for Red Hat Enterprise Linux, "centos" for Centos (Stream), etc.
+
+    :return: The ID for the target system
+    :rtype: str
+    """
+    return api.current_actor().configuration.distro.target
+
+
+def is_conversion():
+    """
+    Return whether a conversion is happening during the upgrade.
+
+    Conversions in means that a target distro different from source distro was
+    specified.
+
+    This is a wrapper which compares source and target distro IDs. This can also
+    be helpful for testing.
+
+    :return: True if converting False otherwise
+    :rtype: bool
+    """
+    return get_source_distro_id() != get_target_distro_id()

@@ -11,6 +11,16 @@ except ImportError:
     api.current_logger().warning('repofileutils.py: failed to import dnf')
 
 
+class InvalidRepoDefinition(Exception):
+    """Raised when a repository definition is invalid."""
+    def __init__(self, msg, repofile, repoid):
+        message = 'Invalid repository definition: {repoid} in: {repofile}: {msg}'.format(
+                    repoid=repoid, repofile=repofile, msg=msg)
+        super().__init__(message)
+        self.repofile = repofile
+        self.repoid = repoid
+
+
 def _parse_repository(repoid, repo_data):
     def asbool(x):
         return x == '1'
@@ -48,12 +58,17 @@ def parse_repofile(repofile):
     :param repofile: Path to the repo file
     :type repofile: str
     :rtype: RepositoryFile
+    :raises InvalidRepoDefinition: If the repository definition is invalid,
+        this can for example occur if 'name' field in repository is missing or it is invalid.
     """
     data = []
     with open(repofile, mode='r') as fp:
         cp = utils.parse_config(fp, strict=False)
         for repoid in cp.sections():
-            data.append(_parse_repository(repoid, dict(cp.items(repoid))))
+            try:
+                data.append(_parse_repository(repoid, dict(cp.items(repoid))))
+            except fields.ModelViolationError as e:
+                raise InvalidRepoDefinition(e, repofile=repofile, repoid=repoid)
     return RepositoryFile(file=repofile, data=data)
 
 
@@ -99,6 +114,7 @@ def get_parsed_repofiles(context=mounting.NotIsolatedActions(base_dir='/')):
     :param context: An instance of a mounting.IsolatedActions class
     :type context: mounting.IsolatedActions class
     :rtype: List(RepositoryFile)
+    :raises InvalidRepoDefinition: If any repository definition is invalid
     """
     repofiles = []
     cmd = ['find', '-L'] + get_repodirs() + ['-maxdepth', '1', '-type', 'f', '-name', '*.repo']

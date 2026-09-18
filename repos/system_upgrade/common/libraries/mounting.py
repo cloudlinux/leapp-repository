@@ -5,7 +5,7 @@ import shutil
 from collections import namedtuple
 
 from leapp.libraries.common.config import get_all_envs
-from leapp.libraries.common.config.version import get_source_major_version
+from leapp.libraries.common.config.version import matches_source_version
 from leapp.libraries.stdlib import api, CalledProcessError, run
 
 # Using ALWAYS_BIND will crash the upgrade process if the file does not exist.
@@ -16,7 +16,7 @@ ALWAYS_BIND = []
 ErrorData = namedtuple('ErrorData', ['summary', 'details'])
 
 
-class MountingMode(object):
+class MountingMode:
     """
     MountingMode are types of mounts supported by the library
     """
@@ -44,6 +44,7 @@ class MountingPropagation(object):
 
 def _makedirs(path, mode=0o777, exists_ok=True):
     """ Helper function which extends os.makedirs with exists_ok on all versions of python. """
+    api.current_logger().debug('Making dir:%s with mode:%o', path, mode)
     try:
         os.makedirs(path, mode=mode)
     except OSError:
@@ -55,13 +56,13 @@ class MountError(Exception):
     """ Exception that is thrown when a mount related operation failed """
 
     def __init__(self, message, details):
-        super(MountError, self).__init__(message)
+        super().__init__(message)
         self.details = details
 
 
-class IsolationType(object):
+class IsolationType:
     """ Implementations for the different isolated actions types """
-    class _Implementation(object):
+    class _Implementation:
         """ Base class for all isolated actions """
 
         def __init__(self, target, **kwargs):
@@ -75,7 +76,8 @@ class IsolationType(object):
             """ Release the isolation context """
             pass
 
-        def make_command(self, cmd):
+        @staticmethod
+        def make_command(cmd):
             """ Transform the given command to the isolated environment """
             return cmd
 
@@ -83,7 +85,7 @@ class IsolationType(object):
         """ systemd-nspawn implementation """
 
         def __init__(self, target, binds=(), env_vars=None):
-            super(IsolationType.NSPAWN, self).__init__(target=target)
+            super().__init__(target=target)
             self.binds = list(binds) + ALWAYS_BIND
             self.env_vars = env_vars or get_all_envs()
 
@@ -91,19 +93,23 @@ class IsolationType(object):
             """ Transform the command to be executed with systemd-nspawn """
             binds = ['--bind={}'.format(bind) for bind in self.binds]
             setenvs = ['--setenv={}={}'.format(env.name, env.value) for env in self.env_vars]
-            final_cmd = ['systemd-nspawn', '--register=no', '--quiet']
-            if get_source_major_version() != '7':
-                # TODO: check whether we could use the --keep unit on el7 too.
-                # in such a case, just add line into the previous solution..
-                # TODO: the same about --capability=all
-                final_cmd += ['--keep-unit', '--capability=all']
+            final_cmd = [
+                'systemd-nspawn',
+                '--register=no',
+                '--quiet',
+                '--keep-unit',
+                '--capability=all',
+            ]
+            if matches_source_version('>= 9.0'):
+                # Disable pseudo-TTY in container
+                final_cmd += ['--pipe']
             return final_cmd + ['-D', self.target] + binds + setenvs + cmd
 
     class CHROOT(_Implementation):
         """ chroot implementation """
 
         def __init__(self, target):
-            super(IsolationType.CHROOT, self).__init__(target)
+            super().__init__(target)
             self.context = None
 
         def create(self):
@@ -135,7 +141,7 @@ class IsolationType(object):
         """ Execute the given commands and perform the given operations on the real system and not isolated. """
 
 
-class IsolatedActions(object):
+class IsolatedActions:
     """ This class allows to perform actions in a manner as if the given base_dir would be the current root """
 
     _isolated = True
@@ -267,14 +273,14 @@ class ChrootActions(IsolatedActions):
     """ Isolation with chroot """
 
     def __init__(self, base_dir):
-        super(ChrootActions, self).__init__(base_dir=base_dir, implementation=IsolationType.CHROOT)
+        super().__init__(base_dir=base_dir, implementation=IsolationType.CHROOT)
 
 
 class NspawnActions(IsolatedActions):
     """ Isolation with systemd-nspawn """
 
     def __init__(self, base_dir, binds=(), env_vars=None):
-        super(NspawnActions, self).__init__(
+        super().__init__(
             base_dir=base_dir, implementation=IsolationType.NSPAWN, binds=binds, env_vars=env_vars)
 
 
@@ -283,10 +289,10 @@ class NotIsolatedActions(IsolatedActions):
     _isolated = False
 
     def __init__(self, base_dir):
-        super(NotIsolatedActions, self).__init__(base_dir=base_dir, implementation=IsolationType.NONE)
+        super().__init__(base_dir=base_dir, implementation=IsolationType.NONE)
 
 
-class MountConfig(object):
+class MountConfig:
     """ Options for Mount """
     _Options = namedtuple('_Options', ('should_create', 'should_cleanup'))
     AttachOnly = _Options(should_create=False, should_cleanup=False)
@@ -299,7 +305,7 @@ class MountConfig(object):
     """ Create all necessary directories and perform mount calls and cleanup afterwards """
 
 
-class MountingBase(object):
+class MountingBase:
     """ Base class for all mount operations """
 
     def __init__(self, source, target, mode,
@@ -393,7 +399,7 @@ class NullMount(MountingBase):
     """ This is basically a NoOp for compatibility with other mount operations, in case a mount is optional """
 
     def __init__(self, target, config=MountConfig.AttachOnly):
-        super(NullMount, self).__init__(source=target, target=target, mode=MountingMode.NONE, config=config)
+        super().__init__(source=target, target=target, mode=MountingMode.NONE, config=config)
 
     def __enter__(self):
         return self
@@ -406,21 +412,21 @@ class LoopMount(MountingBase):
     """ Performs loop mounts """
 
     def __init__(self, source, target, config=MountConfig.Mount):
-        super(LoopMount, self).__init__(source=source, target=target, mode=MountingMode.LOOP, config=config)
+        super().__init__(source=source, target=target, mode=MountingMode.LOOP, config=config)
 
 
 class BindMount(MountingBase):
     """ Performs bind mounts """
 
     def __init__(self, source, target, config=MountConfig.Mount):
-        super(BindMount, self).__init__(source=source, target=target, mode=MountingMode.BIND, config=config)
+        super().__init__(source=source, target=target, mode=MountingMode.BIND, config=config)
 
 
 class TypedMount(MountingBase):
     """ Performs a typed mounts """
 
     def __init__(self, fstype, source, target, config=MountConfig.Mount):
-        super(TypedMount, self).__init__(source=source, target=target, mode=MountingMode.FSTYPE, config=config)
+        super().__init__(source=source, target=target, mode=MountingMode.FSTYPE, config=config)
         self.fstype = fstype
 
     def _mount_options(self):
@@ -435,8 +441,12 @@ class OverlayMount(MountingBase):
     """ Performs an overlayfs mount """
 
     def __init__(self, name, source, workdir, config=MountConfig.Mount):
-        super(OverlayMount, self).__init__(source=source, target=os.path.join(workdir, name),
-                                           mode=MountingMode.OVERLAY, config=config)
+        super().__init__(
+            source=source,
+            target=os.path.join(workdir, name),
+            mode=MountingMode.OVERLAY,
+            config=config
+        )
         self._upper_dir = os.path.join(workdir, 'upper')
         self._work_dir = os.path.join(workdir, 'work')
         self.additional_directories = (self._upper_dir, self._work_dir)

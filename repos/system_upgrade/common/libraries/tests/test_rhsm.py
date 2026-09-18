@@ -8,7 +8,7 @@ from leapp.exceptions import StopActorExecutionError
 from leapp.libraries.common import repofileutils, rhsm
 from leapp.libraries.common.testutils import create_report_mocked, CurrentActorMocked, logger_mocked
 from leapp.libraries.stdlib import api, CalledProcessError
-from leapp.models import RepositoryData, RepositoryFile
+from leapp.models import RepositoryData, RepositoryFile, RHSMInfo
 from leapp.utils.report import is_inhibitor
 
 Repository = namedtuple('Repository', ['repoid', 'file'])
@@ -19,6 +19,7 @@ CMD_RHSM_LIST_CONSUMED = ('subscription-manager', 'list', '--consumed')
 CMD_RHSM_STATUS = ('subscription-manager', 'status')
 CMD_RHSM_RELEASE = ('subscription-manager', 'release')
 CMD_RHSM_LIST_ENABLED_REPOS = ('subscription-manager', 'repos', '--list-enabled')
+CMD_RHSM_IDENTITY = ('subscription-manager', 'identity')
 
 RHSM_STATUS_OUTPUT_NOSCA = '''
 +-------------------------------------------+
@@ -61,14 +62,20 @@ RHSM_ENABLED_REPOS = [
 ]
 
 
-class IsolatedActionsMocked(object):
+class IsolatedActionsMocked:
     def __init__(self, call_stdout=None, raise_err=False):
         self.commands_called = []
         self.call_return = {'stdout': call_stdout, 'stderr': None}
         self.raise_err = raise_err
+        self.remove_called = []
+        self.copy_to_called = []
 
         # A map from called commands to their mocked output
         self.mocked_command_call_outputs = dict()
+
+    @staticmethod
+    def is_isolated():
+        return True
 
     def call(self, cmd, *args, **dummy_kwargs):
         self.commands_called.append(cmd)
@@ -79,14 +86,23 @@ class IsolatedActionsMocked(object):
             tuple(cmd),  # Cast to tuple, as list is not hashable
             self.call_return)
 
-    def add_mocked_command_call_with_stdout(self, cmd, stdout):
+    def add_mocked_command_call(self, cmd, stdout=None, stderr=None, exit_code=0):
         # We cast `cmd` from list to tuple, as a list cannot be hashed
         self.mocked_command_call_outputs[tuple(cmd)] = {
             'stdout': stdout,
-            'stderr': None}
+            'stderr': stderr,
+            'exit_code': exit_code
+        }
 
-    def full_path(self, path):
+    @staticmethod
+    def full_path(path):
         return path
+
+    def remove(self, path):
+        self.remove_called.append(path)
+
+    def copy_to(self, src, dst):
+        self.copy_to_called.append((src, dst))
 
 
 @pytest.fixture
@@ -170,6 +186,24 @@ def test_get_available_repo_ids_error():
     assert 'Unable to use yum' in str(err)
 
 
+def test_get_available_repo_ids_invalid_repo(monkeypatch):
+    context_mocked = IsolatedActionsMocked()
+
+    def _raise_invalid_repo(context):
+        raise repofileutils.InvalidRepoDefinition(
+            msg='mocked error',
+            repofile='/etc/yum.repos.d/invalid.repo',
+            repoid='invalid-repo'
+        )
+
+    monkeypatch.setattr(repofileutils, 'get_parsed_repofiles', _raise_invalid_repo)
+
+    with pytest.raises(StopActorExecutionError) as exc_info:
+        rhsm.get_available_repo_ids(context_mocked)
+
+    assert 'Ensure the repository definition is correct' in exc_info.value.details['hint']
+
+
 def test_inhibit_on_duplicate_repos(monkeypatch):
     monkeypatch.setattr(reporting, 'create_report', create_report_mocked())
     monkeypatch.setattr(api, 'current_logger', logger_mocked())
@@ -203,7 +237,7 @@ def test_inhibit_on_duplicate_repos_no_dups(monkeypatch):
 
 def test_sku_listing(monkeypatch, actor_mocked, context_mocked):
     """Tests whether the rhsm library can obtain used SKUs correctly."""
-    context_mocked.add_mocked_command_call_with_stdout(CMD_RHSM_LIST_CONSUMED, 'SKU: 598339696910')
+    context_mocked.add_mocked_command_call(CMD_RHSM_LIST_CONSUMED, 'SKU: 598339696910')
 
     attached_skus = rhsm.get_attached_skus(context_mocked)
 
@@ -234,7 +268,7 @@ def test_scanrhsminfo_with_skip_rhsm(monkeypatch, context_mocked):
 
 def test_get_release(monkeypatch, actor_mocked, context_mocked):
     """Tests whether the library correctly retrieves release from RHSM."""
-    context_mocked.add_mocked_command_call_with_stdout(CMD_RHSM_RELEASE, 'Release: 7.9')
+    context_mocked.add_mocked_command_call(CMD_RHSM_RELEASE, 'Release: 7.9')
 
     release = rhsm.get_release(context_mocked)
 
@@ -245,7 +279,7 @@ def test_get_release(monkeypatch, actor_mocked, context_mocked):
 def test_get_release_with_release_not_set(monkeypatch, actor_mocked, context_mocked):
     """Tests whether the library does not retrieve release information when the release is not set."""
     # Test whether no release is detected correctly too
-    context_mocked.add_mocked_command_call_with_stdout(CMD_RHSM_RELEASE, 'Release not set')
+    context_mocked.add_mocked_command_call(CMD_RHSM_RELEASE, 'Release not set')
 
     release = rhsm.get_release(context_mocked)
 
@@ -255,7 +289,7 @@ def test_get_release_with_release_not_set(monkeypatch, actor_mocked, context_moc
 
 def test_is_manifest_sca_on_nonsca_system(monkeypatch, actor_mocked, context_mocked):
     """Tests whether the library obtains the SCA information correctly from a non-SCA system."""
-    context_mocked.add_mocked_command_call_with_stdout(CMD_RHSM_STATUS, RHSM_STATUS_OUTPUT_NOSCA)
+    context_mocked.add_mocked_command_call(CMD_RHSM_STATUS, RHSM_STATUS_OUTPUT_NOSCA)
 
     is_sca = rhsm.is_manifest_sca(context_mocked)
     assert not is_sca, 'SCA was detected on a non-SCA system.'
@@ -263,7 +297,7 @@ def test_is_manifest_sca_on_nonsca_system(monkeypatch, actor_mocked, context_moc
 
 def test_is_manifest_sca_on_sca_system(monkeypatch, actor_mocked, context_mocked):
     """Tests whether the library obtains the SCA information from SCA system correctly."""
-    context_mocked.add_mocked_command_call_with_stdout(CMD_RHSM_STATUS, RHSM_STATUS_OUTPUT_SCA)
+    context_mocked.add_mocked_command_call(CMD_RHSM_STATUS, RHSM_STATUS_OUTPUT_SCA)
 
     is_sca = rhsm.is_manifest_sca(context_mocked)
     assert is_sca, 'Failed to detected SCA on a SCA system.'
@@ -286,7 +320,7 @@ def test_get_enabled_repo_ids(monkeypatch, actor_mocked, context_mocked):
         rhsm_output_fragment += '\n'
         rhsm_list_enabled_output += rhsm_output_fragment
 
-    context_mocked.add_mocked_command_call_with_stdout(CMD_RHSM_LIST_ENABLED_REPOS, rhsm_list_enabled_output)
+    context_mocked.add_mocked_command_call(CMD_RHSM_LIST_ENABLED_REPOS, rhsm_list_enabled_output)
 
     enabled_repo_ids = rhsm.get_enabled_repo_ids(context_mocked)
 
@@ -387,6 +421,85 @@ def test_get_existing_product_certificates_missing_cert_directory(monkeypatch, a
     assert existing_product_certificates[0] == '/etc/pki/product-default/cert', fail_description
 
 
-if rhsm.skip_rhsm():
-    # skip tests if rhsm is disabled
-    pytest.skip(allow_module_level=True)
+def test_is_registered_on_registered_system(context_mocked):
+    """Tests whether the library obtains the registraton status correctly from a registered system."""
+    context_mocked.add_mocked_command_call(CMD_RHSM_IDENTITY, exit_code=0)
+    assert rhsm.is_rhsm_registered(context_mocked)
+
+
+def test_is_registered_on_unregistered_system(context_mocked):
+    """Tests whether the library obtains the registraton status correctly from an unregistered system."""
+    context_mocked.add_mocked_command_call(CMD_RHSM_IDENTITY, exit_code=1)
+    assert not rhsm.is_rhsm_registered(context_mocked)
+
+
+def test_is_registered_error(context_mocked):
+    """Tests whether the is_rhsm_registered function correctly handles command errors"""
+    context_mocked.add_mocked_command_call(CMD_RHSM_IDENTITY, exit_code=2)
+    with pytest.raises(StopActorExecutionError) as err:
+        rhsm.is_rhsm_registered(context_mocked)
+
+    assert 'A subscription-manager command failed to execute' in str(err)
+
+
+def test_set_container_mode(monkeypatch, context_mocked):
+    actor = CurrentActorMocked(dst_distro='rhel')
+    monkeypatch.setattr(api, 'current_actor', actor)
+    monkeypatch.setattr(
+        os.path, "exists", lambda path: path in ("/etc/rhsm", "/etc/pki/entitlement")
+    )
+
+    rhsm.set_container_mode(context_mocked)
+
+    assert context_mocked.commands_called == [
+        ["ln", "-s", "/etc/rhsm", "/etc/rhsm-host"],
+        ['ln', '-s', '/etc/pki/entitlement', '/etc/pki/entitlement-host'],
+    ]
+
+
+def test_set_container_mode_nonrhel_skip(monkeypatch, context_mocked):
+    actor = CurrentActorMocked(dst_distro='notrhel')
+    monkeypatch.setattr(api, 'current_actor', actor)
+
+    rhsm.set_container_mode(context_mocked)
+
+    assert context_mocked.commands_called == []
+
+
+def mocked_rhsm_info():
+    return RHSMInfo(
+        attached_skus=['SKU1', 'SKU2'],
+        available_repos=['Repo1', 'Repo2'],
+        enabled_repos=['Repo2'],
+        release='7.9',
+        existing_product_certificates=['Cert1', 'Cert2', 'Cert3'],
+        sca_detected=True,
+    )
+
+
+def test_switch_certificate(monkeypatch, context_mocked, actor_mocked):
+    monkeypatch.setattr(
+        os.path, 'isdir', lambda path: path in ('/etc/pki/product', '/etc/pki/product-default')
+    )
+
+    cert_path = '/etc/leapp/repos.d/system_upgrade/common/files/prod-certs/10/479.pem'
+    rhsm.switch_certificate(context_mocked, mocked_rhsm_info(), cert_path)
+
+    assert context_mocked.remove_called == mocked_rhsm_info().existing_product_certificates
+    assert context_mocked.copy_to_called == [
+        (cert_path, os.path.join(target_path, "479.pem"))
+        for target_path in ("/etc/pki/product", "/etc/pki/product-default")
+    ]
+
+
+def test_switch_certificate_respect_with_rhsm(monkeypatch, context_mocked):
+    """Test whether switch_certificate is skipped when LEAPP_NO_RHSM=1"""
+
+    mocked_actor = CurrentActorMocked(envars={'LEAPP_NO_RHSM': '1'})
+    monkeypatch.setattr(api, 'current_actor', mocked_actor)
+
+    cert_path = '/etc/leapp/repos.d/system_upgrade/common/files/prod-certs/10/479.pem'
+    rhsm.switch_certificate(context_mocked, mocked_rhsm_info(), cert_path)
+
+    assert context_mocked.remove_called == []
+    assert context_mocked.copy_to_called == []

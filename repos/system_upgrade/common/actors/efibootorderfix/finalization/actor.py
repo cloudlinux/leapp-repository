@@ -18,7 +18,7 @@ class EfiFinalizationFix(Actor):
     name = 'efi_finalization_fix'
     consumes = (KernelCmdlineArg, InstalledTargetKernelVersion, FirmwareFacts, MountEntry)
     produces = ()
-    tags = (FinalizationPhaseTag, IPUWorkflowTag)
+    tags = (FinalizationPhaseTag.Before, IPUWorkflowTag)
 
     def process(self):
         is_system_efi = False
@@ -32,7 +32,6 @@ class EfiFinalizationFix(Actor):
                 'Red Hat Enterprise Linux': 'redhat',
                 'Rocky Linux': 'rocky',
                 'Scientific Linux': 'redhat',
-                'EuroLinux': 'eurolinux',
                 'CloudLinux': 'centos',
         }
 
