@@ -51,8 +51,8 @@ py2_byte_compile "%1" "%2"}
 # RHEL 8+ packages to be consistent with other leapp projects in future.
 
 Name:           leapp-repository
-Version:        0.20.0
-Release:        13%{?dist}.cloudlinux
+Version:        0.24.0
+Release:        1%{?dist}.cloudlinux
 Summary:        Repositories for leapp
 
 License:        ASL 2.0
@@ -362,6 +362,13 @@ fi
 
 # DO NOT TOUCH SECTION BELOW IN UPSTREAM
 %changelog
+* Thu Sep 18 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.24.0-1.cloudlinux
+- Merge AlmaLinux ELevate 0.24.0, which brings the el9toel10 repository and two years of upstream work in the shared system_upgrade/common code
+- CLOS-7051: Add the el9toel10 repository, the basis of the CloudLinux 9 to 10 upgrade
+- Keep the el7toel8 repository, which upstream retired: CloudLinux 7 to 8 is still shipped
+- Require leapp-framework 6.2 on el8 and el9, and keep 6.0 on el7, where the framework is python2-leapp
+- Repository mapping data must now be in format 1.3.0, which adds a required 'distro' field to every repository entry
+
 * Wed Sep 09 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.20.0-13.cloudlinux
 - CLOS-7025: Improve CageFS handling after the upgrade
 
