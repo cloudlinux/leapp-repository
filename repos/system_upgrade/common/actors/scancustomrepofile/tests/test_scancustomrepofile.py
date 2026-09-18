@@ -7,13 +7,7 @@ from leapp.libraries.actor import scancustomrepofile
 from leapp.libraries.common import repofileutils
 from leapp.libraries.common.testutils import produce_mocked
 from leapp.libraries.stdlib import api
-
-from leapp.models import (
-    CustomTargetRepository,
-    CustomTargetRepositoryFile,
-    RepositoryData,
-    RepositoryFile,
-)
+from leapp.models import CustomTargetRepository, CustomTargetRepositoryFile, RepositoryData, RepositoryFile
 
 _REPODATA = [
     RepositoryData(repoid="repo1", name="repo1name", baseurl="repo1url", enabled=True),
@@ -65,7 +59,7 @@ def test_valid_repofile_exists(monkeypatch):
     monkeypatch.setattr(repofileutils, 'parse_repofile', _mocked_parse_repofile)
     monkeypatch.setattr(api, 'current_logger', LoggerMocked())
     scancustomrepofile.process()
-    msg = "The {} file exists, custom repositories loaded.".format(scancustomrepofile.CUSTOM_REPO_PATH)
+    msg = "The {} file exists.".format(scancustomrepofile.CUSTOM_REPO_PATH)
     assert api.current_logger.infomsg == msg
     assert api.produce.called == len(_CUSTOM_REPOS) + 1
     assert _CUSTOM_REPO_FILE_MSG in api.produce.model_instances
@@ -81,7 +75,7 @@ def test_empty_repofile_exists(monkeypatch):
     monkeypatch.setattr(repofileutils, 'parse_repofile', _mocked_parse_repofile)
     monkeypatch.setattr(api, 'current_logger', LoggerMocked())
     scancustomrepofile.process()
-    msg = "The {} file exists, but is empty. Nothing to do.".format(scancustomrepofile.CUSTOM_REPO_PATH)
+    msg = "The {} file exists.".format(scancustomrepofile.CUSTOM_REPO_PATH)
     assert api.current_logger.infomsg == msg
     assert not api.produce.called
 

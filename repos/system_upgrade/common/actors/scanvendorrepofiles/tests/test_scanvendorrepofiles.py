@@ -1,134 +1,88 @@
 import os
 
-import pytest
-from leapp.libraries.actor import scancustomrepofile
+from leapp.libraries.actor import scanvendorrepofiles
 from leapp.libraries.common import repofileutils
-from leapp.libraries.common.testutils import produce_mocked
+from leapp.libraries.common.testutils import CurrentActorMocked, produce_mocked
 from leapp.libraries.stdlib import api
+from leapp.models import (
+    ActiveVendorList,
+    CustomTargetRepository,
+    CustomTargetRepositoryFile,
+    RepositoryData,
+    RepositoryFile,
+    VendorCustomTargetRepositoryList
+)
 
-from leapp.models import (CustomTargetRepository, CustomTargetRepositoryFile,
-    RepositoryData, RepositoryFile)
-
+_VENDOR = 'somevendor'
+_REPOFILE_NAME = '{}.repo'.format(_VENDOR)
+_REPOFILE_PATH = os.path.join(scanvendorrepofiles.VENDORS_DIR, _REPOFILE_NAME)
 
 _REPODATA = [
-    RepositoryData(repoid="repo1", name="repo1name", baseurl="repo1url", enabled=True),
-    RepositoryData(repoid="repo2", name="repo2name", baseurl="repo2url", enabled=False),
-    RepositoryData(repoid="repo3", name="repo3name", enabled=True),
-    RepositoryData(repoid="repo4", name="repo4name", mirrorlist="mirror4list", enabled=True),
+    RepositoryData(repoid='repo1', name='repo1name', baseurl='repo1url', enabled=True),
+    RepositoryData(repoid='repo2', name='repo2name', baseurl='repo2url', enabled=False),
 ]
 
-_CUSTOM_REPOS = [
-    CustomTargetRepository(repoid="repo1", name="repo1name", baseurl="repo1url", enabled=True),
-    CustomTargetRepository(repoid="repo2", name="repo2name", baseurl="repo2url", enabled=False),
-    CustomTargetRepository(repoid="repo3", name="repo3name", baseurl=None, enabled=True),
-    CustomTargetRepository(repoid="repo4", name="repo4name", baseurl=None, enabled=True),
-]
 
-_CUSTOM_REPO_FILE_MSG = CustomTargetRepositoryFile(file=scancustomrepofile.CUSTOM_REPO_PATH)
+def _mock_repofile(fpath):
+    return RepositoryFile(file=fpath, data=_REPODATA)
 
 
-_TESTING_REPODATA = [
-    RepositoryData(repoid="repo1-stable", name="repo1name", baseurl="repo1url", enabled=True),
-    RepositoryData(repoid="repo2-testing", name="repo2name", baseurl="repo2url", enabled=False),
-    RepositoryData(repoid="repo3-stable", name="repo3name", enabled=False),
-    RepositoryData(repoid="repo4-testing", name="repo4name", mirrorlist="mirror4list", enabled=True),
-]
-
-_TESTING_CUSTOM_REPOS_STABLE_TARGET = [
-    CustomTargetRepository(repoid="repo1-stable", name="repo1name", baseurl="repo1url", enabled=True),
-    CustomTargetRepository(repoid="repo2-testing", name="repo2name", baseurl="repo2url", enabled=False),
-    CustomTargetRepository(repoid="repo3-stable", name="repo3name", baseurl=None, enabled=False),
-    CustomTargetRepository(repoid="repo4-testing", name="repo4name", baseurl=None, enabled=True),
-]
-
-_TESTING_CUSTOM_REPOS_BETA_TARGET = [
-    CustomTargetRepository(repoid="repo1-stable", name="repo1name", baseurl="repo1url", enabled=True),
-    CustomTargetRepository(repoid="repo2-testing", name="repo2name", baseurl="repo2url", enabled=True),
-    CustomTargetRepository(repoid="repo3-stable", name="repo3name", baseurl=None, enabled=False),
-    CustomTargetRepository(repoid="repo4-testing", name="repo4name", baseurl=None, enabled=True),
-]
-
-_PROCESS_STABLE_TARGET = "stable"
-_PROCESS_BETA_TARGET = "beta"
-
-
-class LoggerMocked(object):
-    def __init__(self):
-        self.infomsg = None
-        self.debugmsg = None
-
-    def info(self, msg):
-        self.infomsg = msg
-
-    def debug(self, msg):
-        self.debugmsg = msg
-
-    def __call__(self):
-        return self
-
-
-def test_no_repofile(monkeypatch):
-    monkeypatch.setattr(os.path, 'isfile', lambda dummy: False)
+def _setup(monkeypatch, listdir, active_vendors, isdir=True):
+    monkeypatch.setattr(os.path, 'isdir', lambda dummy: isdir)
+    monkeypatch.setattr(os, 'listdir', lambda dummy: listdir)
+    monkeypatch.setattr(repofileutils, 'parse_repofile', _mock_repofile)
     monkeypatch.setattr(api, 'produce', produce_mocked())
-    monkeypatch.setattr(api, 'current_logger', LoggerMocked())
-    scancustomrepofile.process()
-    msg = "The {} file doesn't exist. Nothing to do.".format(scancustomrepofile.CUSTOM_REPO_PATH)
-    assert api.current_logger.debugmsg == msg
-    assert not api.produce.called
+    monkeypatch.setattr(
+        api, 'current_actor',
+        CurrentActorMocked(msgs=[ActiveVendorList(data=active_vendors)])
+    )
 
 
-def test_valid_repofile_exists(monkeypatch):
-    def _mocked_parse_repofile(fpath):
-        return RepositoryFile(file=fpath, data=_REPODATA)
-    monkeypatch.setattr(os.path, 'isfile', lambda dummy: True)
-    monkeypatch.setattr(api, 'produce', produce_mocked())
-    monkeypatch.setattr(repofileutils, 'parse_repofile', _mocked_parse_repofile)
-    monkeypatch.setattr(api, 'current_logger', LoggerMocked())
-    scancustomrepofile.process()
-    msg = "The {} file exists, custom repositories loaded.".format(scancustomrepofile.CUSTOM_REPO_PATH)
-    assert api.current_logger.infomsg == msg
-    assert api.produce.called == len(_CUSTOM_REPOS) + 1
-    assert _CUSTOM_REPO_FILE_MSG in api.produce.model_instances
-    for crepo in _CUSTOM_REPOS:
-        assert crepo in api.produce.model_instances
+def test_no_vendors_dir(monkeypatch):
+    """With no vendors.d directory there is nothing to produce."""
+    _setup(monkeypatch, [_REPOFILE_NAME], [_VENDOR], isdir=False)
+
+    scanvendorrepofiles.process()
+
+    assert api.produce.called == 0
 
 
-@pytest.mark.skip("Broken test")
-def test_target_stable_repos(monkeypatch):
-    def _mocked_parse_repofile(fpath):
-        return RepositoryFile(file=fpath, data=_TESTING_REPODATA)
-    monkeypatch.setattr(os.path, 'isfile', lambda dummy: True)
-    monkeypatch.setattr(api, 'produce', produce_mocked())
-    monkeypatch.setattr(repofileutils, 'parse_repofile', _mocked_parse_repofile)
+def test_active_vendor_repofile_is_loaded(monkeypatch):
+    """A repofile whose vendor is active produces the file message and its repos."""
+    _setup(monkeypatch, [_REPOFILE_NAME], [_VENDOR])
 
-    scancustomrepofile.process(_PROCESS_STABLE_TARGET)
-    assert api.produce.called == len(_TESTING_CUSTOM_REPOS_STABLE_TARGET) + 1
-    for crepo in _TESTING_CUSTOM_REPOS_STABLE_TARGET:
-        assert crepo in api.produce.model_instances
+    scanvendorrepofiles.process()
 
+    assert CustomTargetRepositoryFile(file=_REPOFILE_PATH) in api.produce.model_instances
 
-@pytest.mark.skip("Broken test")
-def test_target_beta_repos(monkeypatch):
-    def _mocked_parse_repofile(fpath):
-        return RepositoryFile(file=fpath, data=_TESTING_REPODATA)
-    monkeypatch.setattr(os.path, 'isfile', lambda dummy: True)
-    monkeypatch.setattr(api, 'produce', produce_mocked())
-    monkeypatch.setattr(repofileutils, 'parse_repofile', _mocked_parse_repofile)
-
-    scancustomrepofile.process(_PROCESS_BETA_TARGET)
-    assert api.produce.called == len(_TESTING_CUSTOM_REPOS_BETA_TARGET) + 1
-    for crepo in _TESTING_CUSTOM_REPOS_BETA_TARGET:
-        assert crepo in api.produce.model_instances
+    produced_lists = [
+        msg for msg in api.produce.model_instances if isinstance(msg, VendorCustomTargetRepositoryList)
+    ]
+    assert len(produced_lists) == 1
+    assert produced_lists[0].vendor == _VENDOR
+    assert produced_lists[0].repos == [
+        CustomTargetRepository(repoid='repo1', name='repo1name', baseurl='repo1url', enabled=True),
+        CustomTargetRepository(repoid='repo2', name='repo2name', baseurl='repo2url', enabled=False),
+    ]
 
 
-def test_empty_repofile_exists(monkeypatch):
-    def _mocked_parse_repofile(fpath):
-        return RepositoryFile(file=fpath, data=[])
-    monkeypatch.setattr(os.path, 'isfile', lambda dummy: True)
-    monkeypatch.setattr(api, 'produce', produce_mocked())
-    monkeypatch.setattr(repofileutils, 'parse_repofile', _mocked_parse_repofile)
-    monkeypatch.setattr(api, 'current_logger', LoggerMocked())
-    scancustomrepofile.process()
-    msg = "The {} file exists, but is empty. Nothing to do.".format(scancustomrepofile.CUSTOM_REPO_PATH)
-    assert api.current_logger.infomsg == msg
-    assert not api.produce.called
+def test_inactive_vendor_repofile_is_skipped(monkeypatch):
+    """A repofile present on disk but not in the active list must be ignored.
+
+    This is the whole point of the actor: vendor repositories are only carried
+    over when the vendor's source repositories were actually in use.
+    """
+    _setup(monkeypatch, [_REPOFILE_NAME], ['someothervendor'])
+
+    scanvendorrepofiles.process()
+
+    assert api.produce.called == 0
+
+
+def test_non_repofile_is_ignored(monkeypatch):
+    """Files in vendors.d that are not .repo files are not parsed."""
+    _setup(monkeypatch, ['{}_map.json'.format(_VENDOR)], [_VENDOR])
+
+    scanvendorrepofiles.process()
+
+    assert api.produce.called == 0

@@ -230,33 +230,33 @@ def test_create_lookup():
     keys = ('value', )
     with mock.patch('leapp.libraries.stdlib.api.consume', return_value=(model,)):
         lookup = rpms.create_lookup(MockModel, 'list_field', keys=keys)
-        assert {(42, ), (-42, ), (9999, )} == lookup
+        assert [(42, ), (-42, ), (9999, )] == lookup
     # plain list, multiple keys
     with mock.patch('leapp.libraries.stdlib.api.consume', return_value=(model,)):
         lookup = rpms.create_lookup(MockModel, 'list_field', keys=('value', 'plan'))
-        assert {(42, 'A'), (-42, 'B'), (9999, None)} == lookup
+        assert [(42, 'A'), (-42, 'B'), (9999, None)] == lookup
     # empty list
     model.list_field = []
     with mock.patch('leapp.libraries.stdlib.api.consume', return_value=(model,)):
         lookup = rpms.create_lookup(MockModel, 'list_field', keys=keys)
-        assert set() == lookup
+        assert list() == lookup
     # nullable list without default
     assert model.list_field_nullable is None
     with mock.patch('leapp.libraries.stdlib.api.consume', return_value=(model,)):
         lookup = rpms.create_lookup(MockModel, 'list_field_nullable', keys=keys)
-        assert set() == lookup
+        assert list() == lookup
     # improper usage: lookup from non iterable field
     with mock.patch('leapp.libraries.stdlib.api.consume', return_value=(model,)):
         lookup = rpms.create_lookup(MockModel, 'int_field', keys=keys)
-        assert set() == lookup
+        assert list() == lookup
     # improper usage: lookup from iterable but bad attribute
     with mock.patch('leapp.libraries.stdlib.api.consume', return_value=(model,)):
         lookup = rpms.create_lookup(MockModel, 'list_field', keys=('nosuchattr',))
-        assert set() == lookup
+        assert list() == lookup
     # improper usage: lookup from iterable, multiple keys bad 1 bad
     with mock.patch('leapp.libraries.stdlib.api.consume', return_value=(model,)):
         lookup = rpms.create_lookup(MockModel, 'list_field', keys=('value', 'nosuchattr'))
-        assert set() == lookup
+        assert list() == lookup
 
 
 def test_has_package(current_actor_context):

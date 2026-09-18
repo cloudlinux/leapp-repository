@@ -21,6 +21,7 @@ _CUR_DIR = os.path.dirname(os.path.abspath(__file__))
 
 @pytest.mark.parametrize('distro', ['rhel', 'centos'])
 def test_get_distribution_data(monkeypatch, distro):
+    monkeypatch.setattr(api, 'current_actor', CurrentActorMocked())
     common_path = os.path.join(_CUR_DIR, "../../files/", 'distro')
     monkeypatch.setattr(
         api,

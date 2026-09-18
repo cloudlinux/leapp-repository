@@ -403,9 +403,14 @@ def get_clmysql_type():
 # Repository mapping helpers
 # ---------------------------------------------------------------------------
 
-def make_pesid_repo(pesid, major_version, repoid, arch='x86_64', repo_type='rpm', channel='ga', rhui=''):
+def make_pesid_repo(pesid, major_version, repoid, arch='x86_64', repo_type='rpm', channel='ga', rhui='',
+                    distro='cloudlinux'):
     """
     PESIDRepositoryEntry factory function allowing shorter data description by providing default values.
+
+    ``distro`` became a required field of PESIDRepositoryEntry with repomap format
+    1.3.0. RepoMapDataHandler matches entries against get_source_distro_id(), which
+    is the /etc/os-release ID - 'cloudlinux' on every host this library runs on.
     """
     return PESIDRepositoryEntry(
         pesid=pesid,
@@ -414,7 +419,8 @@ def make_pesid_repo(pesid, major_version, repoid, arch='x86_64', repo_type='rpm'
         arch=arch,
         repo_type=repo_type,
         channel=channel,
-        rhui=rhui
+        rhui=rhui,
+        distro=distro
     )
 
 

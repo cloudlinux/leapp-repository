@@ -127,8 +127,3 @@ def test_enable_repos_skip_rhsm(monkeypatch):
     enablerhsmtargetrepos.enable_rhsm_repos()
     assert not enablerhsmtargetrepos.run.called
     assert api.current_logger.dbgmsg
-
-
-if rhsm.skip_rhsm():
-    # skip tests if rhsm is disabled
-    pytest.skip(allow_module_level=True)

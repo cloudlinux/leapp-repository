@@ -1,7 +1,6 @@
 from leapp import reporting
 from leapp.libraries.actor.checkyumpluginsenabled import check_required_dnf_plugins_enabled
 from leapp.libraries.common.testutils import create_report_mocked, CurrentActorMocked
-from leapp.libraries.common import rhsm
 from leapp.libraries.stdlib import api
 from leapp.models import PkgManagerInfo
 from leapp.utils.report import is_inhibitor
@@ -35,7 +34,6 @@ def test__create_report_mocked(monkeypatch):
         assert group in actor_reports.report_fields['groups']
 
 
-@pytest.mark.skipif(rhsm.skip_rhsm(), reason="Skip when rhsm is disabled")
 def test_report_when_missing_required_plugins(monkeypatch):
     """Test whether a report entry is created when any of the required DNF plugins are missing."""
     dnf_config = PkgManagerInfo(enabled_plugins=['product-id', 'some-user-plugin'])
