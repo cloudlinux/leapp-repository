@@ -1548,3 +1548,56 @@ def test_cloudlinux_release_urls_unchanged_for_existing_targets():
         first = userspacegen._get_cloudlinux_release_urls(major)[0]
         assert 'migrate/release-files' in first
         assert 'cloudlinux{0}-release-current'.format(major) in first
+
+
+def test_localinstall_resolves_system_release_from_target_repos_on_10(monkeypatch):
+    """CloudLinux 10 needs a separate provider of system-release(releasever).
+
+    Up to 9 cloudlinux-release *is* the system release. cloudlinux-release-10
+    instead carries "Requires: system-release(releasever) = 10", because
+    CloudLinux 10 is a subsystem on top of AlmaLinux and almalinux-release owns
+    the system identity. A CloudLinux 9 host provides only releasever 9, and the
+    CloudLinux 10 channel does not carry almalinux-release either - it holds the
+    CloudLinux additions only - so dnf fails with "nothing provides
+    system-release(releasever) = 10" unless the transaction can reach the target
+    repositories, at the target releasever.
+    """
+    monkeypatch.setattr(userspacegen.api, 'current_logger', logger_mocked())
+    monkeypatch.setattr(userspacegen.api, 'current_actor', CurrentActorMocked(dst_ver='10.2'))
+    context = _RecordingContext()
+
+    userspacegen._install_cloudlinux_release(context, '10', ['almalinux10-baseos', 'cloudlinux10-channel'])
+
+    localinstall_cmds = [c for c in context.commands if 'localinstall' in c]
+    assert len(localinstall_cmds) == 1
+    cmd = localinstall_cmds[0]
+    assert '--releasever' in cmd
+    assert cmd[cmd.index('--releasever') + 1] == '10.2'
+    assert cmd.count('--enablerepo') == 2
+    assert 'almalinux10-baseos' in cmd
+    assert 'cloudlinux10-channel' in cmd
+    # The source repofiles are still in this overlay and some interpolate
+    # $releasever into their baseurl (cl-mysql resolves to .../other/cl$releasever/...),
+    # so the override has to exclude them or dnf dies downloading their metadata.
+    assert '--disablerepo' in cmd
+    assert cmd[cmd.index('--disablerepo') + 1] == '*'
+
+
+def test_localinstall_unchanged_for_targets_providing_their_own_system_release(monkeypatch):
+    """8 and 9 must keep the exact command they had - their release provides it.
+
+    Enabling the target repositories here would let the throwaway overlay pull
+    target content it never pulled before, so it is done only where the
+    dependency cannot be satisfied any other way.
+    """
+    monkeypatch.setattr(userspacegen.api, 'current_logger', logger_mocked())
+    monkeypatch.setattr(userspacegen.api, 'current_actor', CurrentActorMocked(dst_ver='9.4'))
+
+    for major in ('8', '9'):
+        context = _RecordingContext()
+        userspacegen._install_cloudlinux_release(context, major, ['almalinux{0}-baseos'.format(major)])
+        cmd = [c for c in context.commands if 'localinstall' in c][0]
+        assert '--releasever' not in cmd
+        assert '--enablerepo' not in cmd
+        assert '--disablerepo' not in cmd
+        assert cmd[-1] == userspacegen._get_cloudlinux_release_urls(major)[0]

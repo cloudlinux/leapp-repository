@@ -258,7 +258,30 @@ def _get_cloudlinux_release_urls(target_major_version):
     ]
 
 
-def _install_cloudlinux_release(context, target_major_version):
+# CloudLinux 10 is the first target where cloudlinux-release stopped being the
+# system release. Up to 9 it owns /etc/os-release and provides
+# system-release(releasever); from 10 the distribution is a subsystem on top of
+# AlmaLinux, so almalinux-release keeps the system identity and
+# cloudlinux-release only adds the CloudLinux channels on top of it.
+_FIRST_MAJOR_WITHOUT_OWN_SYSTEM_RELEASE = 10
+
+
+def _needs_target_repos_for_release_install(target_major_version):
+    """Whether the release localinstall has to reach the target repositories.
+
+    From CloudLinux 10 cloudlinux-release carries
+    "Requires: system-release(releasever) = <major>" rather than providing it,
+    and the provider - almalinux-release - is in neither place the overlay can
+    already see: the source system provides its own major, and the CloudLinux 10
+    channel carries only the CloudLinux additions, its base content coming from
+    AlmaLinux. It is not worth fetching by URL either, because almalinux-release
+    Requires almalinux-repos at an exact version, so a URL would pin a pair that
+    goes stale on every AlmaLinux release.
+    """
+    return int(target_major_version) >= _FIRST_MAJOR_WITHOUT_OWN_SYSTEM_RELEASE
+
+
+def _install_cloudlinux_release(context, target_major_version, enabled_repos=()):
     """Install the target cloudlinux-release into the throwaway source overlay.
 
     This localinstall runs against the (throwaway) source overlay, so the source
@@ -270,9 +293,24 @@ def _install_cloudlinux_release(context, target_major_version):
     upgrade transaction already resolves with allow_erasing=True.
     """
     urls = _get_cloudlinux_release_urls(target_major_version)
+    repo_opts = []
+    if _needs_target_repos_for_release_install(target_major_version):
+        # The target repofiles are already in this overlay - gather_target_repositories
+        # installed them - but they are keyed on $releasever, which is still the
+        # source major here, so they have to be named and the releasever overridden
+        # for dnf to resolve the target's system-release provider out of them.
+        # Every other repository has to go with it. The source repofiles are
+        # still here and several of them interpolate $releasever into their
+        # baseurl - cl-mysql resolves to .../other/cl$releasever/... - so an
+        # overridden releasever sends them to paths that do not exist and dnf
+        # fails on the metadata download rather than on anything to do with the
+        # release package.
+        repo_opts = ['--releasever', api.current_actor().configuration.version.target, '--disablerepo', '*']
+        for repo in enabled_repos:
+            repo_opts += ['--enablerepo', repo]
     for index, url in enumerate(urls):
         try:
-            context.call(['dnf', '-y', 'localinstall', '--allowerasing', url],
+            context.call(['dnf', '-y', 'localinstall', '--allowerasing'] + repo_opts + [url],
                          callback_raw=utils.logging_handler)
             if index:
                 api.current_logger().info(
@@ -325,7 +363,7 @@ def prepare_target_userspace(context, userspace_dir, enabled_repos, packages):
         # resolve those conflicts and target_userspace_creator crashes (ZD
         # 287724). Erasing here only touches the discarded overlay; the real
         # upgrade transaction already resolves with allow_erasing=True.
-        _install_cloudlinux_release(context, target_major_version)
+        _install_cloudlinux_release(context, target_major_version, enabled_repos)
 
         # cloudlinux 9 does not have modular packages
         if target_major_version == '8':
