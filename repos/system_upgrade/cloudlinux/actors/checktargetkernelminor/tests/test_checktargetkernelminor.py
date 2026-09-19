@@ -10,6 +10,7 @@ gets exercised here.
 import pytest
 
 from leapp.libraries.actor import checktargetkernelminor as lib
+from leapp.libraries.common.testutils import logger_mocked
 
 
 # ---------------------------------------------------------------------------
@@ -187,3 +188,38 @@ class TestProcess:
         )
         lib.process(installroot='/var/lib/leapp/el9userspace', query_fn=q, target_major='9')
         assert captured_reports == []  # kernel minor 6 == release minor 6
+
+
+def test_skips_targets_without_minor_versions(monkeypatch):
+    """CloudLinux 10 has no minor versions, so there is no minor skew to check.
+
+    cloudlinux-release on CL10 is version "10", not "10.2", so the release-minor
+    parser returns None and the check already does nothing - but by accident,
+    which reads like a bug to the next person. Skip explicitly, and do not even
+    query the repositories.
+    """
+    queried = []
+
+    def recording_query(installroot, pkg):
+        queried.append(pkg)
+        return []
+
+    monkeypatch.setattr(lib.api, 'current_logger', logger_mocked())
+    lib.process('/installroot', query_fn=recording_query, target_major='10')
+
+    assert queried == []
+    assert any('no minor versions' in msg for msg in lib.api.current_logger.infomsg)
+
+
+def test_still_checks_targets_that_do_have_minors(monkeypatch):
+    """The skip must be specific to majors without minors, not a blanket off switch."""
+    queried = []
+
+    def recording_query(installroot, pkg):
+        queried.append(pkg)
+        return []
+
+    monkeypatch.setattr(lib.api, 'current_logger', logger_mocked())
+    lib.process('/installroot', query_fn=recording_query, target_major='9')
+
+    assert queried == ['kernel-core', 'cloudlinux-release']

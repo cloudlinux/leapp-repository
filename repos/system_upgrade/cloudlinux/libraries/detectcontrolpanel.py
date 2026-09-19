@@ -15,6 +15,38 @@ INTEGRATED_NAME = 'Integrated'
 
 CLSYSCONFIG = '/etc/sysconfig/cloudlinux'
 
+# Names that mean "there is no control panel here" rather than naming one.
+# UNKNOWN_NAME is detection failing to identify a panel, not evidence of one, and
+# has never blocked an upgrade.
+_NOT_A_PANEL = (NOPANEL_NAME, INTEGRATED_NAME, UNKNOWN_NAME)
+
+# Panels we carry upgrade data for, keyed by the target major versions they
+# support. cPanel, DirectAdmin and Plesk are supported through CloudLinux 9.
+# None of them supports CloudLinux 10 yet - which is also why there is no EA4
+# vendor data for el10 - so on a CL10 target every panel blocks.
+_PANEL_SUPPORTED_TARGET_MAJORS = {
+    CPANEL_NAME: ('8', '9'),
+    DIRECTADMIN_NAME: ('8', '9'),
+    PLESK_NAME: ('8', '9'),
+}
+
+
+def panel_blocks_upgrade(panel_name, target_major_version):
+    """
+    Should the presence of this control panel inhibit an upgrade to this target?
+
+    :param panel_name: A name from this module's *_NAME constants.
+    :param target_major_version: Major version of the target system, e.g. '10'.
+    :return: True when the upgrade must be inhibited.
+    """
+    if panel_name in _NOT_A_PANEL:
+        return False
+    supported = _PANEL_SUPPORTED_TARGET_MAJORS.get(panel_name)
+    if supported is None:
+        # A panel we have no upgrade data for at all.
+        return True
+    return str(target_major_version) not in supported
+
 
 def lvectl_custompanel_script():
     """

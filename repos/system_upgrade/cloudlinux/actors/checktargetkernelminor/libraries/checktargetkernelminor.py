@@ -55,6 +55,23 @@ def parse_kernel_minor(release_str, target_major):
     return int(m.group(2))
 
 
+# CloudLinux 10 dropped minor versions: cloudlinux-release is version "10", not
+# "10.2", and there is no per-minor channel. The skew this check guards against -
+# the channel serving a kernel from a newer minor than the rest of the userland -
+# cannot arise without minors. Without this the check still does nothing, because
+# the release-minor parser finds no minor and bails, but it does so by accident.
+_FIRST_MAJOR_WITHOUT_MINORS = 10
+
+
+def _target_has_minor_versions(target_major):
+    try:
+        return int(target_major) < _FIRST_MAJOR_WITHOUT_MINORS
+    except (TypeError, ValueError):
+        # An unparseable major is not something to make a decision on; let the
+        # rest of the check run and bail on its own terms.
+        return True
+
+
 def parse_release_minor(version_str, target_major):
     """Return the minor version from a cloudlinux-release RPM version field,
     or None if not present or not for the target major.
@@ -154,6 +171,13 @@ def process(installroot, query_fn=None, target_major=None):
         query_fn = _repoquery
     if target_major is None:
         target_major = get_target_major_version()
+
+    if not _target_has_minor_versions(target_major):
+        api.current_logger().info(
+            'Skipping kernel-minor check: CloudLinux %s has no minor versions,'
+            ' so a kernel cannot be ahead of the userland by one.', target_major,
+        )
+        return
 
     kernel_rows = query_fn(installroot, 'kernel-core')
     release_rows = query_fn(installroot, 'cloudlinux-release')
