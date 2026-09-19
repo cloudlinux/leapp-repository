@@ -206,7 +206,7 @@ def test_shipped_config_defines_cloudlinux_paths():
     # plain "10" (cloudlinux-release is version 10, /etc/cloudlinux-release says
     # "CloudLinux release 10"), unlike CL9's 9.7.
     assert default['9'] == ['10']
-    for minor in ('9.4', '9.5', '9.6', '9.7'):
+    for minor in ('9.4', '9.5', '9.6', '9.7', '9.8'):
         assert default[minor] == ['10'], minor
 
     # Every source key must have a major-only fallback, which is what
