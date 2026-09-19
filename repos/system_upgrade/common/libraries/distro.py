@@ -62,6 +62,51 @@ _DISTRO_REPOFILES_MAP = {
             '/etc/yum.repos.d/centos-addons.repo': ARCH_ACCEPTED,
         },
     },
+    # CloudLinux. Contents taken from the cloudlinux-release package of each
+    # target: it is that package which drops these files, and what it drops
+    # changed at 10.
+    #
+    # On 8 and 9, cloudlinux-release owns the almalinux-*.repo files itself -
+    # CloudLinux rebranded the base. On 10 it ships only cloudlinux.repo and
+    # cloudlinux-rollout.repo, because CloudLinux 10 is layered on stock
+    # AlmaLinux and almalinux-release provides the rest. The AlmaLinux names are
+    # listed for 10 all the same: whichever package installs them, their repoids
+    # have to be found, and a file that is not present is skipped rather than
+    # treated as an error.
+    #
+    # Deliberately absent everywhere: cloudlinux-rollout.repo, which
+    # scan_rollout_repositories owns and which must not count as base content,
+    # and cloudlinux-imunify360.repo, which is a product repository rather than
+    # the distribution's.
+    'cloudlinux': {
+        '8': {
+            '/etc/yum.repos.d/almalinux-appstream.repo': ARCH_ACCEPTED,
+            '/etc/yum.repos.d/almalinux-baseos.repo': ARCH_ACCEPTED,
+            '/etc/yum.repos.d/almalinux-devel.repo': ARCH_ACCEPTED,
+            '/etc/yum.repos.d/almalinux-extras.repo': ARCH_ACCEPTED,
+            '/etc/yum.repos.d/almalinux-ha.repo': ARCH_ACCEPTED,
+            '/etc/yum.repos.d/almalinux-powertools.repo': ARCH_ACCEPTED,
+            '/etc/yum.repos.d/almalinux-resilientstorage.repo': ARCH_ACCEPTED,
+            '/etc/yum.repos.d/cloudlinux-compat.repo': ARCH_ACCEPTED,
+            '/etc/yum.repos.d/cloudlinux.repo': ARCH_ACCEPTED,
+        },
+        '9': {
+            '/etc/yum.repos.d/almalinux-appstream.repo': ARCH_ACCEPTED,
+            '/etc/yum.repos.d/almalinux-baseos.repo': ARCH_ACCEPTED,
+            '/etc/yum.repos.d/almalinux-crb.repo': ARCH_ACCEPTED,
+            '/etc/yum.repos.d/almalinux-devel.repo': ARCH_ACCEPTED,
+            '/etc/yum.repos.d/cloudlinux.repo': ARCH_ACCEPTED,
+        },
+        '10': {
+            # no resilientstorage on 10, as with almalinux above
+            '/etc/yum.repos.d/almalinux-appstream.repo': ARCH_ACCEPTED,
+            '/etc/yum.repos.d/almalinux-baseos.repo': ARCH_ACCEPTED,
+            '/etc/yum.repos.d/almalinux-crb.repo': ARCH_ACCEPTED,
+            '/etc/yum.repos.d/almalinux-extras.repo': ARCH_ACCEPTED,
+            '/etc/yum.repos.d/almalinux-highavailability.repo': ARCH_ACCEPTED,
+            '/etc/yum.repos.d/cloudlinux.repo': ARCH_ACCEPTED,
+        },
+    },
     'almalinux': {
         '8': {
             # TODO is this true on all archs?
