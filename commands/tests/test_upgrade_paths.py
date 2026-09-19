@@ -202,12 +202,18 @@ def test_shipped_config_defines_cloudlinux_paths():
     assert default['7.9'] == ['8.10']
     assert default['8.10'] == ['9.4']
 
-    # CL9 -> CL10. The target has no minor: CloudLinux 10 identifies itself as
-    # plain "10" (cloudlinux-release is version 10, /etc/cloudlinux-release says
-    # "CloudLinux release 10"), unlike CL9's 9.7.
-    assert default['9'] == ['10']
+    # CL9 -> CL10 targets an AlmaLinux 10 minor, not a bare "10".
+    #
+    # CloudLinux 10 has no minor of its own - cloudlinux-release is version 10 -
+    # but leapp's version machinery is strictly MAJOR.MINOR and _validate_versions
+    # rejects a bare major, which kills pes_events_scanner. The minor that exists
+    # is the base system's, so that is what the path names, the same way
+    # AlmaLinux's own entries do. Newest last: get_target_version takes the last.
+    expected = ['10.0', '10.1', '10.2']
+    assert default['9'] == expected
     for minor in ('9.4', '9.5', '9.6', '9.7', '9.8'):
-        assert default[minor] == ['10'], minor
+        assert default[minor] == expected, minor
+    assert default['9'][-1] == '10.2', 'the default target must be the newest listed'
 
     # Every source key must have a major-only fallback, which is what
     # get_supported_target_versions drops to for a minor it does not know.
