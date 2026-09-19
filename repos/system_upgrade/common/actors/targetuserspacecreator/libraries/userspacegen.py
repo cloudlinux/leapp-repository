@@ -237,6 +237,67 @@ def enable_spacewalk_module(context):
         )
 
 
+def _get_cloudlinux_release_urls(target_major_version):
+    """URLs to try for the target's cloudlinux-release, most preferred first.
+
+    The migrate copy is a stable "current" pointer published per target under
+    /cloudlinux/migrate/release-files/ and is what this has always installed. It
+    does not exist for every target - the 10 directory 404s where 8 and 9 are
+    present - so the canonical release RPM follows it as a fallback rather than
+    the upgrade failing on a missing file.
+    """
+    return [
+        (
+            'https://repo.cloudlinux.com/cloudlinux/migrate/release-files'
+            '/cloudlinux/{version}/x86_64/cloudlinux{version}-release-current.x86_64.rpm'
+        ).format(version=target_major_version),
+        (
+            'https://repo.cloudlinux.com/cloudlinux/{version}'
+            '/cloudlinux-release-latest-{version}.rpm'
+        ).format(version=target_major_version),
+    ]
+
+
+def _install_cloudlinux_release(context, target_major_version):
+    """Install the target cloudlinux-release into the throwaway source overlay.
+
+    This localinstall runs against the (throwaway) source overlay, so the source
+    rpmdb is in scope here. The target cloudlinux-release intentionally Conflicts
+    with legacy packages that have no upgrade candidate on the source OS (e.g.
+    rhn-client-tools < 2.11.5 on CL7, superseded by the CL8 build). Without
+    --allowerasing dnf cannot resolve those conflicts and target_userspace_creator
+    crashes (ZD 287724). Erasing here only touches the discarded overlay; the real
+    upgrade transaction already resolves with allow_erasing=True.
+    """
+    urls = _get_cloudlinux_release_urls(target_major_version)
+    for index, url in enumerate(urls):
+        try:
+            context.call(['dnf', '-y', 'localinstall', '--allowerasing', url],
+                         callback_raw=utils.logging_handler)
+            if index:
+                api.current_logger().info(
+                    'Installed cloudlinux-release from the fallback URL %s;'
+                    ' the preferred %s was not usable.', url, urls[0]
+                )
+            return
+        except CalledProcessError as err:
+            if index == len(urls) - 1:
+                raise StopActorExecutionError(
+                    'Could not install the target cloudlinux-release package.',
+                    details={
+                        'details': 'Tried: {}. Last error: {}'.format(', '.join(urls), err),
+                        'hint': (
+                            'Check that a cloudlinux-release package for the target'
+                            ' major version is published and reachable from this host.'
+                        ),
+                    },
+                )
+            api.current_logger().warning(
+                'Could not install cloudlinux-release from %s (%s); trying the next URL.',
+                url, err
+            )
+
+
 def prepare_target_userspace(context, userspace_dir, enabled_repos, packages):
     """
     Implement the creation of the target userspace.
@@ -256,10 +317,6 @@ def prepare_target_userspace(context, userspace_dir, enabled_repos, packages):
         api.current_logger().debug('Installing cloudlinux-release')
         context.call(['rpm', '--import', 'https://repo.cloudlinux.com/cloudlinux/security/RPM-GPG-KEY-CloudLinux'],
                      callback_raw=utils.logging_handler)
-        cloudlinux_release_url = (
-            'https://repo.cloudlinux.com/cloudlinux/migrate/release-files'
-            '/cloudlinux/{version}/x86_64/cloudlinux{version}-release-current.x86_64.rpm'
-        ).format(version=target_major_version)
         # This localinstall runs against the (throwaway) source overlay, so the
         # source rpmdb is in scope here. The target cloudlinux-release
         # intentionally Conflicts with legacy packages that have no upgrade
@@ -268,8 +325,7 @@ def prepare_target_userspace(context, userspace_dir, enabled_repos, packages):
         # resolve those conflicts and target_userspace_creator crashes (ZD
         # 287724). Erasing here only touches the discarded overlay; the real
         # upgrade transaction already resolves with allow_erasing=True.
-        context.call(['dnf', '-y', 'localinstall', '--allowerasing', cloudlinux_release_url],
-                     callback_raw=utils.logging_handler)
+        _install_cloudlinux_release(context, target_major_version)
 
         # cloudlinux 9 does not have modular packages
         if target_major_version == '8':

@@ -1519,3 +1519,32 @@ def test_prepare_target_userspace_allows_erasing_conflicts(monkeypatch):
     localinstall_cmds = [c for c in context.commands if 'localinstall' in c]
     assert localinstall_cmds, 'expected a dnf localinstall of cloudlinux-release'
     assert '--allowerasing' in localinstall_cmds[0]
+
+
+def test_cloudlinux_release_urls_prefer_migrate_then_canonical():
+    """The migrate copy is tried first, the canonical release RPM as a fallback.
+
+    repo.cloudlinux.com publishes a stable "current" release RPM per target under
+    /cloudlinux/migrate/release-files/, and that is what the upgrade has always
+    installed. It does not exist for 10 - the directory 404s, while 8 and 9 are
+    there - so the canonical /cloudlinux/<major>/cloudlinux-release-latest-<major>.rpm
+    is tried after it rather than the upgrade dying on a missing file.
+    """
+    urls = userspacegen._get_cloudlinux_release_urls('10')
+
+    assert len(urls) == 2
+    assert urls[0] == (
+        'https://repo.cloudlinux.com/cloudlinux/migrate/release-files'
+        '/cloudlinux/10/x86_64/cloudlinux10-release-current.x86_64.rpm'
+    )
+    assert urls[1] == (
+        'https://repo.cloudlinux.com/cloudlinux/10/cloudlinux-release-latest-10.rpm'
+    )
+
+
+def test_cloudlinux_release_urls_unchanged_for_existing_targets():
+    """8 and 9 keep asking for the migrate copy first, exactly as before."""
+    for major in ('8', '9'):
+        first = userspacegen._get_cloudlinux_release_urls(major)[0]
+        assert 'migrate/release-files' in first
+        assert 'cloudlinux{0}-release-current'.format(major) in first
