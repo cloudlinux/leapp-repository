@@ -223,3 +223,28 @@ def test_still_checks_targets_that_do_have_minors(monkeypatch):
     lib.process('/installroot', query_fn=recording_query, target_major='9')
 
     assert queried == ['kernel-core', 'cloudlinux-release']
+
+
+def test_repoquery_tolerates_an_unavailable_repo(monkeypatch):
+    """One broken repository must not silently switch this check off.
+
+    The query runs against the target userspace, which inherits the source
+    system's repofiles. A stale one - cl-mysql, whose baseurl interpolates
+    $releasever and 404s on the target - makes dnf exit 1 for every query. This
+    library then reads two empty lists, logs "could not determine both minors"
+    and returns, so the CLOS-3716 guard is off on exactly the kind of untidy box
+    most likely to need it.
+    """
+    seen = {}
+
+    def fake_run(cmd, **dummy):
+        seen['cmd'] = cmd
+        return {'stdout': '5.14.0|611.5.1.el9_7\n'}
+
+    monkeypatch.setattr(lib, "run", fake_run)
+    monkeypatch.setattr(lib.api, "current_logger", logger_mocked())
+
+    rows = lib._repoquery("/installroot", "kernel-core")
+
+    assert rows == [('5.14.0', '611.5.1.el9_7')]
+    assert any('skip_if_unavailable=1' in arg for arg in seen['cmd'])

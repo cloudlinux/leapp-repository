@@ -75,13 +75,21 @@ def _evr(epoch, version, release):
 def _repoquery(installroot, name):
     """Available (epoch, version, release) for `name` in the target repositories.
 
-    An empty list means either nothing available or a failed query. The caller
-    treats both as "no target build", which is the safe direction: it inhibits
-    and names the package rather than letting a silent erase through.
+    Returns None when the query could not be answered, which is not the same as
+    an empty list: an empty list is a real absence, None is ignorance. The
+    distinction matters because a single unrelated repository can break the
+    whole query - on the box this was validated against, a stale cl-mysql
+    repofile whose baseurl interpolates $releasever 404d on the target and made
+    every query exit 1. Read as "no build", that named all fourteen essential
+    packages when one was genuinely behind.
+
+    skip_if_unavailable keeps such a repository from taking the query down in
+    the first place; None is what is left when something else does.
     """
     cmd = [
         'dnf', '-q', 'repoquery',
         '--installroot={0}'.format(installroot),
+        '--setopt=*.skip_if_unavailable=1',
         '--available',
         '--queryformat=%{epoch}|%{version}|%{release}\n',
         name,
@@ -92,7 +100,7 @@ def _repoquery(installroot, name):
         api.current_logger().warning(
             'repoquery for %s in %s failed: %s', name, installroot, exc
         )
-        return []
+        return None
     rows = []
     for line in (result.get('stdout') or '').splitlines():
         line = line.strip()
@@ -104,25 +112,41 @@ def _repoquery(installroot, name):
 
 
 def find_unupgradable(installed_packages, query_fn, target_major=None):
+    """The offenders alone; see evaluate() for the indeterminate ones too."""
+    return evaluate(installed_packages, query_fn, target_major)[0]
+
+
+def evaluate(installed_packages, query_fn, target_major=None):
     """Essential packages the target repositories cannot upgrade to.
 
-    Returns a list of (name, installed EVR, best available EVR or None), in the
-    order the packages were installed, for every essential package whose best
-    available build is older than what is on the system. That is dnf's own rule,
-    so this reports exactly the packages dnf would refuse to upgrade - and
-    therefore, with allow_erasing, exactly the ones it would erase.
+    Returns (offenders, indeterminate).
+
+    `offenders` is a list of (name, installed EVR, best available EVR or None)
+    for every essential package whose best available build is older than what is
+    on the system. That is dnf's own rule, so it is exactly the set dnf would
+    refuse to upgrade - and therefore, with allow_erasing, exactly the set it
+    would erase.
+
+    `indeterminate` names the packages whose query could not be answered at all.
+    Those are not offenders: a failed query is a statement about the query.
     """
     if target_major is None:
         target_major = get_target_major_version()
 
     offenders = []
+    indeterminate = []
     for pkg in installed_packages:
         if pkg.name not in ESSENTIAL_PACKAGES:
             continue
 
         installed = (pkg.epoch or '0', pkg.version, pkg.release)
+        available = query_fn(pkg.name)
+        if available is None:
+            indeterminate.append(pkg.name)
+            continue
+
         best = None
-        for candidate in query_fn(pkg.name):
+        for candidate in available:
             if not _is_target_build(candidate[2], target_major):
                 continue
             if best is None or rpm.labelCompare(candidate, best) > 0:
@@ -133,7 +157,7 @@ def find_unupgradable(installed_packages, query_fn, target_major=None):
         elif rpm.labelCompare(installed, best) > 0:
             offenders.append((pkg.name, _evr(*installed), _evr(*best)))
 
-    return offenders
+    return offenders, indeterminate
 
 
 def process(installroot):
@@ -141,9 +165,14 @@ def process(installroot):
     for rpms in api.consume(InstalledRPM):
         installed.extend(rpms.items)
 
-    offenders = find_unupgradable(
+    offenders, indeterminate = evaluate(
         installed, lambda name: _repoquery(installroot, name)
     )
+    if indeterminate:
+        api.current_logger().warning(
+            'Could not determine target availability for: %s. Those packages are'
+            ' not covered by this check.', ', '.join(sorted(indeterminate))
+        )
     if not offenders:
         return
 

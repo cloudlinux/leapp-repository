@@ -3,7 +3,7 @@ import pytest
 from leapp import reporting
 from leapp.libraries.actor import checkclstacksurvives as lib
 from leapp.libraries.common.testutils import create_report_mocked, logger_mocked
-from leapp.libraries.stdlib import api
+from leapp.libraries.stdlib import api, CalledProcessError
 from leapp.models import InstalledRPM, RPM
 
 
@@ -176,3 +176,67 @@ def test_cloudlinux_dist_suffix_still_counts_as_a_target_build():
     query = lambda name: [('0', '7.6.47', '1.el10.cloudlinux')]
 
     assert lib.find_unupgradable(installed, query, target_major='10') == []
+
+
+def test_a_failed_query_is_not_evidence_of_a_missing_build():
+    """A repoquery that errors says nothing about the package.
+
+    On the validation box an unrelated stale repo (cl-mysql, whose baseurl
+    interpolates $releasever and 404s on the target) made every repoquery exit
+    1. Treating that as "no build in the target repositories" named all
+    fourteen essential packages, when only one was genuinely behind - it would
+    have sent someone to rebuild thirteen packages that were fine.
+    """
+    installed = [_rpm('cagefs', '7.6.47', '1.el9.cloudlinux')]
+
+    assert lib.find_unupgradable(installed, lambda name: None, target_major='10') == []
+
+
+def test_a_failed_query_is_reported_as_indeterminate():
+    """The caller has to be able to say so rather than silently pass."""
+    installed = [
+        _rpm('cagefs', '7.6.47', '1.el9.cloudlinux'),
+        _rpm('lve-utils', '6.6.39', '1.el9.cloudlinux'),
+    ]
+
+    offenders, indeterminate = lib.evaluate(
+        installed, lambda name: None, target_major='10'
+    )
+
+    assert offenders == []
+    assert sorted(indeterminate) == ['cagefs', 'lve-utils']
+
+
+def test_an_empty_answer_still_means_no_target_build():
+    """A successful query returning nothing is a real absence, unlike a failure."""
+    installed = [_rpm('lvemanager', '7.11.48', '1.el9.cloudlinux')]
+
+    offenders, indeterminate = lib.evaluate(installed, lambda name: [], target_major='10')
+
+    assert offenders == [('lvemanager', '0:7.11.48-1.el9.cloudlinux', None)]
+    assert indeterminate == []
+
+
+def test_repoquery_tolerates_an_unavailable_repo(monkeypatch):
+    """One broken repo must not take the whole query down with it."""
+    seen = {}
+
+    def fake_run(cmd, **dummy):
+        seen['cmd'] = cmd
+        return {'stdout': '0|7.6.47|1.el10.cloudlinux\n'}
+
+    monkeypatch.setattr(lib, 'run', fake_run)
+    monkeypatch.setattr(api, 'current_logger', logger_mocked())
+
+    assert lib._repoquery('/installroot', 'cagefs') == [('0', '7.6.47', '1.el10.cloudlinux')]
+    assert any('skip_if_unavailable=1' in arg for arg in seen['cmd'])
+
+
+def test_repoquery_returns_none_when_the_command_fails(monkeypatch):
+    def boom(cmd, **dummy):
+        raise CalledProcessError('failed', cmd, {'exit_code': 1, 'stdout': '', 'stderr': ''})
+
+    monkeypatch.setattr(lib, 'run', boom)
+    monkeypatch.setattr(api, 'current_logger', logger_mocked())
+
+    assert lib._repoquery('/installroot', 'cagefs') is None

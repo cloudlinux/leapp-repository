@@ -98,6 +98,13 @@ def _repoquery(installroot, pkg):
     cmd = [
         'dnf', '-q', 'repoquery',
         '--installroot={}'.format(installroot),
+        # The target userspace inherits the source system's repofiles, and one
+        # stale entry - cl-mysql, whose baseurl interpolates $releasever and
+        # 404s on the target - makes dnf exit 1 for every query. Without this
+        # the caller then reads an empty list, logs "could not determine both
+        # minors" and returns, switching the CLOS-3716 guard off on exactly the
+        # kind of untidy box most likely to need it.
+        '--setopt=*.skip_if_unavailable=1',
         '--available',
         '--queryformat=%{version}|%{release}\n',
         pkg,
