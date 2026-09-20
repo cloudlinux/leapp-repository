@@ -22,7 +22,6 @@ has no way back from it.
 
 import re
 
-import rpm
 
 from leapp import reporting
 from leapp.libraries.common.config.version import get_target_major_version
@@ -121,11 +120,18 @@ def evaluate(installed_packages, query_fn, target_major=None):
 
     Returns (offenders, indeterminate).
 
-    `offenders` is a list of (name, installed EVR, best available EVR or None)
-    for every essential package whose best available build is older than what is
-    on the system. That is dnf's own rule, so it is exactly the set dnf would
-    refuse to upgrade - and therefore, with allow_erasing, exactly the set it
-    would erase.
+    `offenders` is a list of (name, installed EVR, None) for every essential
+    package with **no target build at all**. Such a package cannot be carried
+    over: leapp marks it for upgrade, nothing satisfies the job, and
+    allow_erasing turns that into an uninstall.
+
+    A target build that is merely *older* is deliberately not an offender. leapp
+    sets allowdowngrade and issues a distupgrade job - one real run performed 33
+    downgrades - so it moves packages backwards across the major boundary as a
+    matter of course. Measured: with alt-python-internal-3.11.13-2.el9 installed
+    and only 3.11.12-2.el10 available, the solver took the el10 build and the
+    whole CloudLinux stack came through. An earlier version of this check
+    inhibited on that and would have blocked every such upgrade.
 
     `indeterminate` names the packages whose query could not be answered at all.
     Those are not offenders: a failed query is a statement about the query.
@@ -145,17 +151,8 @@ def evaluate(installed_packages, query_fn, target_major=None):
             indeterminate.append(pkg.name)
             continue
 
-        best = None
-        for candidate in available:
-            if not _is_target_build(candidate[2], target_major):
-                continue
-            if best is None or rpm.labelCompare(candidate, best) > 0:
-                best = candidate
-
-        if best is None:
+        if not any(_is_target_build(candidate[2], target_major) for candidate in available):
             offenders.append((pkg.name, _evr(*installed), None))
-        elif rpm.labelCompare(installed, best) > 0:
-            offenders.append((pkg.name, _evr(*installed), _evr(*best)))
 
     return offenders, indeterminate
 
@@ -179,8 +176,7 @@ def process(installroot):
     lines = []
     for name, installed_evr, best_evr in offenders:
         if best_evr is None:
-            lines.append('    - {0}: installed {1}, no build in the target repositories'
-                         .format(name, installed_evr))
+            lines.append('    - {0}: installed {1}'.format(name, installed_evr))
         else:
             lines.append('    - {0}: installed {1}, best available {2}'
                          .format(name, installed_evr, best_evr))
@@ -190,13 +186,13 @@ def process(installroot):
             'The CloudLinux software stack cannot be upgraded to the target system'
         ),
         reporting.Summary(
-            'The target repositories offer no build of the following packages at or'
-            ' above the version installed on this system:\n\n{0}\n\n'
-            'RPM never moves a package backwards, so the upgrade transaction would'
-            ' erase each of them instead - and everything depending on them. In the'
-            ' case this check was written for, one such package took lve-utils,'
-            ' cagefs, lvemanager and lve-stats with it, leaving a machine with'
-            ' neither LVE nor CageFS and no way back.'
+            'The target repositories offer no build at all of the following'
+            ' packages:\n\n{0}\n\n'
+            'leapp marks each installed package for upgrade; with nothing to satisfy'
+            ' that job, allow_erasing turns it into an uninstall instead - silently,'
+            ' and taking everything that depends on it. A CloudLinux 9 to 10 run'
+            ' lost lve-utils, cagefs, lvemanager and lve-stats that way and still'
+            ' reported success.'
             .format('\n'.join(lines))
         ),
         reporting.Severity(reporting.Severity.HIGH),

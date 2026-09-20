@@ -12,23 +12,25 @@ def _rpm(name, version, release, epoch='0'):
                packager='CloudLinux', arch='x86_64', pgpsig='RSA/SHA256')
 
 
-def test_older_target_build_is_reported():
-    """The CLOS-7051 case: alt-python-internal's el10 build is behind el9's.
+def test_an_older_target_build_is_NOT_an_offender():
+    """leapp downgrades across the major boundary, so "older" is not a problem.
 
-    Installed 3.11.13-2.el9, best available 3.11.12-2.el10. dnf will not move a
-    package backwards, so with allow_erasing it erases it instead - and every
-    CloudLinux package resting on it goes with it. Exactly what a real
-    CloudLinux 9 to 10 run did, removing lve-utils, cagefs and lvemanager.
+    This test asserts the opposite of what it did originally, because the
+    original premise was wrong. Measured on a real CloudLinux 9 box: with
+    alt-python-internal-3.11.13-2.el9 installed and only 3.11.12-2.el10
+    available, the solver resolved it to the el10 build - a downgrade - and
+    cagefs, cloudlinux-venv, lve-utils and lvemanager all came through at el10.
+    alt-python311 went 3.11.16-1.el9 -> 3.11.13-2.el10 the same way in a
+    completed upgrade.
+
+    leapp sets allowdowngrade and issues a distupgrade job; one of its runs
+    performed 33 downgrades. Inhibiting on "installed EVR > best available"
+    therefore blocks upgrades that succeed.
     """
     installed = [_rpm('alt-python-internal', '3.11.13', '2.el9')]
+    query = lambda name: [('0', '3.11.12', '2.el10')]
 
-    def query(name):
-        assert name == 'alt-python-internal'
-        return [('0', '3.11.12', '2.el10')]
-
-    assert lib.find_unupgradable(installed, query, target_major='10') == [
-        ('alt-python-internal', '0:3.11.13-2.el9', '0:3.11.12-2.el10')
-    ]
+    assert lib.find_unupgradable(installed, query, target_major='10') == []
 
 
 def test_same_version_across_dist_tags_is_fine():
@@ -50,13 +52,12 @@ def test_newer_target_build_is_fine():
     assert lib.find_unupgradable(installed, query, target_major='10') == []
 
 
-def test_highest_available_wins_not_the_first_returned():
-    """repoquery lists every build; the comparison is against the best one."""
+def test_several_target_builds_are_fine():
+    """Whatever the versions, a target build exists - that is the whole test."""
     installed = [_rpm('cagefs', '7.6.45', '1.el9.cloudlinux')]
     query = lambda name: [
         ('0', '7.6.27', '2.el10.cloudlinux'),
         ('0', '7.6.47', '1.el10.cloudlinux'),
-        ('0', '7.6.30', '1.el10.cloudlinux'),
     ]
 
     assert lib.find_unupgradable(installed, query, target_major='10') == []
@@ -94,8 +95,8 @@ def test_non_essential_packages_are_ignored():
     assert lib.find_unupgradable(installed, lambda name: [], target_major='10') == []
 
 
-def test_epoch_is_honoured():
-    """An epoch bump outranks any version, so it must not read as a downgrade."""
+def test_any_target_build_at_all_is_enough():
+    """The surviving rule is presence, not version ordering."""
     installed = [_rpm('lve-stats', '5.0.4', '1.el9', epoch='0')]
     query = lambda name: [('1', '4.2.13', '2.el10')]
 
@@ -113,10 +114,7 @@ def test_process_inhibits_and_names_every_offender(monkeypatch):
             _rpm('cagefs', '7.6.47', '1.el9.cloudlinux'),
         ])])
     )
-    monkeypatch.setattr(
-        lib, '_repoquery',
-        lambda installroot, name: [] if name == 'cagefs' else [('0', '3.11.12', '2.el10')]
-    )
+    monkeypatch.setattr(lib, '_repoquery', lambda installroot, name: [])
 
     lib.process('/installroot')
 
@@ -149,14 +147,11 @@ def test_source_major_builds_in_the_union_are_ignored():
     check can never fire - it would compare a package against itself. Only
     builds carrying the target major's dist tag count as a target build.
     """
-    installed = [_rpm('alt-python-internal', '3.11.13', '2.el9')]
-    query = lambda name: [
-        ('0', '3.11.13', '2.el9'),    # the installed one, from the source repo
-        ('0', '3.11.12', '2.el10'),   # the only real target build
-    ]
+    installed = [_rpm('lvemanager', '7.11.48', '1.el9.cloudlinux')]
+    query = lambda name: [('0', '7.11.48', '1.el9.cloudlinux')]  # source repo only
 
     assert lib.find_unupgradable(installed, query, target_major='10') == [
-        ('alt-python-internal', '0:3.11.13-2.el9', '0:3.11.12-2.el10')
+        ('lvemanager', '0:7.11.48-1.el9.cloudlinux', None)
     ]
 
 
