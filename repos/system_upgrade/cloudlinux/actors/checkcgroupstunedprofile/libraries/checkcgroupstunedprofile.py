@@ -71,14 +71,19 @@ def check(kernel_parameters):
             ' /etc/tuned/bootcmdline. Those arguments reach the kernel command line'
             ' via the $tuned_params variable referenced by the boot loader entry,'
             ' so they are not stored in the entry itself.\n\n'
-            'This matters because the remediation offered with the "cgroups-v1'
-            ' enabled on the system" inhibitor - grubby --update-kernel=ALL'
-            ' --remove-args=... - has nothing to remove and leaves the system'
-            ' booting exactly as before. Switching the TuneD profile is what'
-            ' changes it: CloudLinux ships {replacement} as the cgroups-v2'
-            ' counterpart of {profile}.'.format(profile=profile, replacement=replacement)
+            'This system stays on cgroups-v1 across the upgrade, which CloudLinux'
+            ' supports: the target kernel still builds cgroups-v1 in, the'
+            ' cgroups-v1 TuneD profiles are shipped for it, and LVE and CageFS'
+            ' operate under either hierarchy.\n\n'
+            'If you would rather move to cgroups-v2, switch the TuneD profile -'
+            ' CloudLinux ships {replacement} as the cgroups-v2 counterpart of'
+            ' {profile} - then regenerate the boot loader configuration and reboot.'
+            ' Note that the grubby --remove-args remediation suggested for the'
+            ' generic cgroups-v1 report has nothing to remove here and leaves the'
+            ' system booting exactly as before; the profile is what changes it.'
+            .format(profile=profile, replacement=replacement)
         ),
-        reporting.Severity(reporting.Severity.HIGH),
+        reporting.Severity(reporting.Severity.LOW),
         reporting.Groups([reporting.Groups.KERNEL]),
         reporting.RelatedResource('file', ACTIVE_PROFILE_FILE),
         reporting.RelatedResource('file', '/etc/tuned/bootcmdline'),

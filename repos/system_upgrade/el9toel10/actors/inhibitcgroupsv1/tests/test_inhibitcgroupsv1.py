@@ -72,3 +72,54 @@ def test_inhibit_should_not_inhibit(monkeypatch, cmdline_params):
     inhibitcgroupsv1.process()
 
     assert not reporting.create_report.called
+
+
+def test_cloudlinux_keeps_cgroups_v1_without_inhibiting(monkeypatch):
+    """CloudLinux does not force the move to cgroups-v2.
+
+    The upstream inhibitor states that cgroups-v1 support "is removed in RHEL
+    10". Measured on a CloudLinux 10.2 box booted with
+    systemd.unified_cgroup_hierarchy=0: it is deprecated and off by default, not
+    removed. The el10 kernel carries CONFIG_MEMCG_V1=y and CONFIG_CPUSETS_V1=y,
+    /proc/cgroups lists controllers on real v1 hierarchies, kmod-lve registers
+    ("lve driver register status 0" - it autodetects the hierarchy and keeps a
+    full v1 path), and LVE and CageFS enforce exactly as they do under v2.
+
+    So the inhibitor is upstream policy rather than a kernel limit, and keeping
+    software working across a major upgrade is the product's purpose. LVE on
+    cgroups-v2 is also the less proven of the two today, so forcing the switch
+    costs stability and buys nothing.
+
+    A report still goes out, because the deprecation is real and an admin should
+    know - but it does not block the upgrade.
+    """
+    cmdline_params = [
+        KernelCmdlineArg(key="systemd.unified_cgroup_hierarchy", value="0"),
+        KernelCmdlineArg(key="systemd.legacy_systemd_cgroup_controller", value="1"),
+    ]
+    curr_actor_mocked = CurrentActorMocked(
+        msgs=[KernelCmdline(parameters=cmdline_params)], release_id='cloudlinux'
+    )
+    monkeypatch.setattr(api, "current_actor", curr_actor_mocked)
+    monkeypatch.setattr(reporting, "create_report", create_report_mocked())
+
+    inhibitcgroupsv1.process()
+
+    assert reporting.create_report.called == 1
+    report = reporting.create_report.reports[0]
+    assert reporting.Groups.INHIBITOR not in report["groups"]
+    assert "cgroups-v1" in report["title"]
+
+
+def test_other_distros_still_inhibit(monkeypatch):
+    """The divergence is CloudLinux-only; nothing changes for anyone else."""
+    cmdline_params = [KernelCmdlineArg(key="systemd.unified_cgroup_hierarchy", value="0")]
+    curr_actor_mocked = CurrentActorMocked(
+        msgs=[KernelCmdline(parameters=cmdline_params)], release_id='almalinux'
+    )
+    monkeypatch.setattr(api, "current_actor", curr_actor_mocked)
+    monkeypatch.setattr(reporting, "create_report", create_report_mocked())
+
+    inhibitcgroupsv1.process()
+
+    assert reporting.Groups.INHIBITOR in reporting.create_report.reports[0]["groups"]
