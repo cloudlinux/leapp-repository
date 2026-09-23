@@ -368,6 +368,16 @@ fi
 - Keep the el7toel8 repository, which upstream retired: CloudLinux 7 to 8 is still shipped
 - Require leapp-framework 6.2 on el8 and el9, and keep 6.0 on el7, where the framework is python2-leapp
 - Repository mapping data must now be in format 1.3.0, which adds a required 'distro' field to every repository entry
+- CLOS-7051: Install the target system-release alongside cloudlinux-release; from CloudLinux 10 the release package requires system-release(releasever) rather than providing it, and the provider is in neither the source system nor the CloudLinux 10 channel
+- CLOS-7051: Carry the CLN JWT into the target userspace, so the ALT-ELS repositories that serve the PHP, Python, Ruby and NodeJS Selectors on CloudLinux 10 can authenticate, and install the els-*-release packages so the upgraded system keeps its own repository files
+- CLOS-7051: Inhibit when an essential CloudLinux package has no build in the target repositories at all, which leapp would otherwise resolve by silently uninstalling it
+- CLOS-7051: Inhibit when the Governor-managed database series has no CloudLinux 10 build; 10 publishes six series where 8 and 9 publish nineteen
+- CLOS-7051: Report the remediation for cgroups-v1 that works on CloudLinux, where the kernel arguments come from a TuneD profile and upstream's grubby advice is a no-op
+- CLOS-7051: Resolve the EFI directory by target major version; CloudLinux 10 boots as almalinux where 8 and 9 boot as centos
+- CLOS-7051: Stop acting on CLN and control panel assumptions CloudLinux 10 does not hold
+- Import the GPG keys shipped for the target major version rather than an unversioned AlmaLinux URL, which serves the AlmaLinux 8 keys and no others
+- Pass skip_if_unavailable to the target userspace repository queries; one stale repository file on the source otherwise made every query fail, silently disabling the kernel-minor check and misreporting the essential-package check
+- Gate the sources shipped on el7 against python3-only syntax, which the 0.24.0 merge introduced into shared code
 
 * Wed Sep 09 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.20.0-13.cloudlinux
 - CLOS-7025: Improve CageFS handling after the upgrade
