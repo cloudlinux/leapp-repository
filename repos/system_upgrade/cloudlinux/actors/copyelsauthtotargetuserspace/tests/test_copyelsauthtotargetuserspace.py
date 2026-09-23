@@ -3,7 +3,12 @@ import os
 from leapp.libraries.actor import copyelsauthtotargetuserspace as lib
 from leapp.libraries.common.testutils import logger_mocked, produce_mocked
 from leapp.libraries.stdlib import api
-from leapp.models import RpmTransactionTasks, TargetUserSpacePreupgradeTasks
+from leapp.models import (
+    CustomTargetRepository,
+    CustomTargetRepositoryFile,
+    RpmTransactionTasks,
+    TargetUserSpacePreupgradeTasks,
+)
 
 
 def _setup(monkeypatch, target='10', jwt_exists=True, vars_present=None):
@@ -11,6 +16,7 @@ def _setup(monkeypatch, target='10', jwt_exists=True, vars_present=None):
     monkeypatch.setattr(api, 'produce', produce_mocked())
     monkeypatch.setattr(lib, 'get_target_major_version', lambda: target)
     present = set(vars_present if vars_present is not None else lib.ELS_DNF_VARS)
+    monkeypatch.setattr(lib.os.path, 'isfile', lambda p: p == lib.ELS_REPO_FILE)
     monkeypatch.setattr(lib.os.path, 'exists', lambda p: (
         p == lib.JWT_TOKEN if p == lib.JWT_TOKEN
         else os.path.basename(p) in present
@@ -94,3 +100,49 @@ def test_nothing_happens_on_targets_before_10(monkeypatch):
     lib.process()
 
     assert not produce.model_instances
+
+
+def test_the_els_repofile_is_pulled_in_only_when_the_token_exists(monkeypatch):
+    """The repositories must not reach the target configuration without the JWT.
+
+    Measured three times on an unregistered CloudLinux 9 box. scancustomrepofile
+    emits a CustomTargetRepository for every section of
+    /etc/leapp/files/leapp_upgrade_repositories.repo, unconditionally - so naming
+    them there makes them target repositories whatever enabled= says and whatever
+    the repomap does, and the target userspace build then dies on
+
+        Status code: 403 for https://$phpelstoken:@repo.alt.tuxcare.com/...
+
+    They live in their own repofile instead, which only this actor pulls in.
+    """
+    produce = _setup(monkeypatch)
+
+    lib.process()
+
+    files = [m for m in produce.model_instances
+             if isinstance(m, CustomTargetRepositoryFile)]
+    assert [f.file for f in files] == [lib.ELS_REPO_FILE]
+    repos = [m for m in produce.model_instances if isinstance(m, CustomTargetRepository)]
+    assert sorted(r.repoid for r in repos) == sorted(lib.ELS_TARGET_REPOS)
+
+
+def test_no_token_means_the_repofile_is_never_pulled_in(monkeypatch):
+    """An unregistered box upgrades without ELS content rather than failing."""
+    produce = _setup(monkeypatch, jwt_exists=False)
+
+    lib.process()
+
+    assert not [m for m in produce.model_instances
+                if isinstance(m, (CustomTargetRepositoryFile, CustomTargetRepository))]
+
+
+def test_a_missing_repofile_warns_rather_than_breaking(monkeypatch):
+    """An older leapp-data has no such file; the upgrade should still run."""
+    produce = _setup(monkeypatch)
+    monkeypatch.setattr(lib.os.path, 'isfile', lambda p: False)
+
+    lib.process()
+
+    assert not [m for m in produce.model_instances
+                if isinstance(m, CustomTargetRepositoryFile)]
+    assert any('cannot be configured' in m for m in api.current_logger().warnmsg)

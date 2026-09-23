@@ -28,7 +28,13 @@ import os
 
 from leapp.libraries.common.config.version import get_target_major_version
 from leapp.libraries.stdlib import api
-from leapp.models import CopyFile, RpmTransactionTasks, TargetUserSpacePreupgradeTasks
+from leapp.models import (
+    CopyFile,
+    CustomTargetRepository,
+    CustomTargetRepositoryFile,
+    RpmTransactionTasks,
+    TargetUserSpacePreupgradeTasks,
+)
 
 # The first CloudLinux target that serves the Selector runtimes from ALT-ELS
 # rather than from the main CloudLinux channel.
@@ -46,6 +52,28 @@ ELS_DNF_VARS = (
     'altrubyelstoken',
     'altnodejselstoken',
 )
+
+# The ALT-ELS repositories live in their own repofile, which leapp-data installs
+# beside the main one but which nothing scans automatically. scancustomrepofile
+# emits a CustomTargetRepository for every section of
+# /etc/leapp/files/leapp_upgrade_repositories.repo, unconditionally - so a
+# repository named there becomes a target repository whatever its enabled flag
+# says and whatever the repomap does. Measured twice on an unregistered box:
+# these then answer 403 with $phpelstoken unexpanded and the target userspace
+# build dies on the metadata download, which skip_if_unavailable does not absorb.
+#
+# Pulling the file in here instead makes the token the only gate: no JWT, no
+# repofile, no repositories.
+ELS_REPO_FILE = '/etc/leapp/files/cloudlinux-els.repo'
+
+_ELS_REPO_IDS = (
+    'el10-php-els',
+    'el10-alt-python',
+    'el10-alt-ruby',
+    'el10-alt-nodejs',
+)
+
+ELS_TARGET_REPOS = _ELS_REPO_IDS
 
 ELS_RELEASE_PACKAGES = (
     'els-php-release',
@@ -80,3 +108,13 @@ def process():
 
     api.produce(TargetUserSpacePreupgradeTasks(copy_files=copy_files))
     api.produce(RpmTransactionTasks(to_install=list(ELS_RELEASE_PACKAGES)))
+    if os.path.isfile(ELS_REPO_FILE):
+        api.produce(CustomTargetRepositoryFile(file=ELS_REPO_FILE))
+        for repoid in ELS_TARGET_REPOS:
+            api.produce(CustomTargetRepository(repoid=repoid, enabled=True))
+    else:
+        api.current_logger().warning(
+            '%s is absent, so the ALT-ELS repositories cannot be configured.'
+            ' The Selector runtimes will stay at their source-major builds.',
+            ELS_REPO_FILE,
+        )

@@ -1,7 +1,12 @@
 from leapp.actors import Actor
 from leapp.libraries.actor import copyelsauthtotargetuserspace
 from leapp.libraries.common.cllaunch import run_on_cloudlinux
-from leapp.models import RpmTransactionTasks, TargetUserSpacePreupgradeTasks
+from leapp.models import (
+    CustomTargetRepository,
+    CustomTargetRepositoryFile,
+    RpmTransactionTasks,
+    TargetUserSpacePreupgradeTasks,
+)
 from leapp.tags import FactsPhaseTag, IPUWorkflowTag
 
 
@@ -21,7 +26,12 @@ class CopyElsAuthToTargetUserspace(Actor):
 
     name = 'copy_els_auth_to_target_userspace'
     consumes = ()
-    produces = (RpmTransactionTasks, TargetUserSpacePreupgradeTasks)
+    produces = (
+        CustomTargetRepository,
+        CustomTargetRepositoryFile,
+        RpmTransactionTasks,
+        TargetUserSpacePreupgradeTasks,
+    )
     tags = (FactsPhaseTag, IPUWorkflowTag)
 
     @run_on_cloudlinux
