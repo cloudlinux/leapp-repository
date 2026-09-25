@@ -123,3 +123,15 @@ def test_other_distros_still_inhibit(monkeypatch):
     inhibitcgroupsv1.process()
 
     assert reporting.Groups.INHIBITOR in reporting.create_report.reports[0]["groups"]
+
+
+def test_uses_the_shared_cgroups_predicate(monkeypatch):
+    """Guard: the v1 decision is made in leapp.libraries.common.cgroups, nowhere else."""
+    params = [KernelCmdlineArg(key="systemd.unified_cgroup_hierarchy", value="0")]
+    monkeypatch.setattr(api, "current_actor", CurrentActorMocked(msgs=[KernelCmdline(parameters=params)]))
+    monkeypatch.setattr(reporting, "create_report", create_report_mocked())
+    monkeypatch.setattr(inhibitcgroupsv1, "requests_legacy_hierarchy", lambda parameters: False)
+
+    inhibitcgroupsv1.process()
+
+    assert reporting.create_report.called == 0

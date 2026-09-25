@@ -1,5 +1,6 @@
 from leapp import reporting
 from leapp.exceptions import StopActorExecutionError
+from leapp.libraries.common.cgroups import requests_legacy_hierarchy
 from leapp.libraries.common.config import get_source_distro_id
 from leapp.libraries.stdlib import api
 from leapp.models import KernelCmdline
@@ -28,12 +29,9 @@ def process():
         # really unlikely
         raise StopActorExecutionError("Did not receive any KernelCmdline messages.")
 
-    unified_hierarchy = True  # default since RHEL 9
+    unified_hierarchy = not requests_legacy_hierarchy(kernel_cmdline.parameters)
     legacy_controller_present = False
     for param in kernel_cmdline.parameters:
-        if param.key == "systemd.unified_cgroup_hierarchy":
-            if param.value is not None and param.value.lower() in ("0", "false", "no"):
-                unified_hierarchy = False
         if param.key == "systemd.legacy_systemd_cgroup_controller":
             # no matter the value, it should be removed
             # it has no effect when unified hierarchy is enabled

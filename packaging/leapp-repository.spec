@@ -373,6 +373,7 @@ fi
 - CLOS-7051: Inhibit when an essential CloudLinux package has no build in the target repositories at all, which leapp would otherwise resolve by silently uninstalling it
 - CLOS-7051: Inhibit when the Governor-managed database series has no CloudLinux 10 build; 10 publishes six series where 8 and 9 publish nineteen
 - CLOS-7051: Report the remediation for cgroups-v1 that works on CloudLinux, where the kernel arguments come from a TuneD profile and upstream's grubby advice is a no-op
+- CLOS-7051: Keep cgroups-v1 working across the upgrade rather than inhibiting as upstream does, and put the CloudLinux 10 kernel arguments on the target kernel before it first boots: ibt=off, without which kmod-lve cannot operate on CPUs with Indirect Branch Tracking, and SYSTEMD_CGROUP_ENABLE_LEGACY_FORCE=1, without which systemd ignores the cgroups-v1 request. TuneD applies both only from the second boot
 - CLOS-7051: Resolve the EFI directory by target major version; CloudLinux 10 boots as almalinux where 8 and 9 boot as centos
 - CLOS-7051: Stop acting on CLN and control panel assumptions CloudLinux 10 does not hold
 - Import the GPG keys shipped for the target major version rather than an unversioned AlmaLinux URL, which serves the AlmaLinux 8 keys and no others

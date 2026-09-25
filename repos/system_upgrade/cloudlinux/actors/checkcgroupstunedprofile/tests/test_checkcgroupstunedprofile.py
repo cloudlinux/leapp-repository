@@ -1,6 +1,10 @@
 import pytest
 
 from leapp.libraries.actor import checkcgroupstunedprofile as lib
+from leapp.models import KernelCmdlineArg
+
+CGV1 = [KernelCmdlineArg(key='systemd.unified_cgroup_hierarchy', value='0')]
+CGV2 = [KernelCmdlineArg(key='cgroup_no_v1', value='all')]
 
 
 @pytest.mark.parametrize(
@@ -20,17 +24,6 @@ def test_cgv2_counterpart(profile, expected):
     assert lib.cgv2_counterpart(profile) == expected
 
 
-def test_kernel_uses_cgroups_v1():
-    """Same condition upstream's inhibit_cgroupsv1 tests, read from the cmdline."""
-    assert lib.kernel_uses_cgroups_v1(
-        ['systemd.unified_cgroup_hierarchy=0', 'systemd.legacy_systemd_cgroup_controller']) is True
-    assert lib.kernel_uses_cgroups_v1(['systemd.unified_cgroup_hierarchy=false']) is True
-    # The default since RHEL 9 is the unified hierarchy.
-    assert lib.kernel_uses_cgroups_v1(['ro', 'quiet']) is False
-    assert lib.kernel_uses_cgroups_v1(['cgroup_no_v1=all']) is False
-    assert lib.kernel_uses_cgroups_v1(['systemd.unified_cgroup_hierarchy=1']) is False
-
-
 def test_reports_only_when_both_conditions_hold(monkeypatch):
     """The advice is specific to a cgv1 tuned profile, not to cgroups-v1 generally.
 
@@ -41,15 +34,15 @@ def test_reports_only_when_both_conditions_hold(monkeypatch):
     monkeypatch.setattr(lib.reporting, 'create_report', lambda parts: calls.append(parts))
 
     monkeypatch.setattr(lib, 'get_active_tuned_profile', lambda: 'virtual-guest')
-    lib.check(['systemd.unified_cgroup_hierarchy=0'])
+    lib.check(CGV1)
     assert calls == []
 
     monkeypatch.setattr(lib, 'get_active_tuned_profile', lambda: 'cloudlinux-default-cgv1')
-    lib.check(['cgroup_no_v1=all'])
+    lib.check(CGV2)
     assert calls == []
 
     monkeypatch.setattr(lib, 'get_active_tuned_profile', lambda: 'cloudlinux-default-cgv1')
-    lib.check(['systemd.unified_cgroup_hierarchy=0'])
+    lib.check(CGV1)
     assert len(calls) == 1
     summary = next(p.value for p in calls[0] if isinstance(p, lib.reporting.Summary))
     assert 'cloudlinux-default-cgv2' in summary
@@ -58,3 +51,13 @@ def test_reports_only_when_both_conditions_hold(monkeypatch):
 
     commands = str(calls[0])
     assert 'tuned-adm profile cloudlinux-default-cgv2' in commands
+
+
+def test_uses_the_shared_cgroups_predicate(monkeypatch):
+    """Guard: the v1 decision is made in leapp.libraries.common.cgroups, nowhere else."""
+    calls = []
+    monkeypatch.setattr(lib.reporting, 'create_report', lambda parts: calls.append(parts))
+    monkeypatch.setattr(lib, 'get_active_tuned_profile', lambda: 'cloudlinux-default-cgv1')
+    monkeypatch.setattr(lib, 'requests_legacy_hierarchy', lambda params: True)
+    lib.check(CGV2)
+    assert len(calls) == 1

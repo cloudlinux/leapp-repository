@@ -1,6 +1,7 @@
 import os
 
 from leapp import reporting
+from leapp.libraries.common.cgroups import requests_legacy_hierarchy
 from leapp.libraries.stdlib import api
 
 ACTIVE_PROFILE_FILE = '/etc/tuned/active_profile'
@@ -35,22 +36,9 @@ def profile_exists(profile):
     return any(os.path.isdir(os.path.join(d, profile)) for d in TUNED_PROFILE_DIRS)
 
 
-def kernel_uses_cgroups_v1(parameters):
-    """Whether the kernel command line selects the legacy hierarchy.
-
-    Same condition upstream's inhibit_cgroupsv1 applies; the unified hierarchy is
-    the default from RHEL 9 on, so only an explicit opt-out counts.
-    """
-    for param in parameters:
-        key, _, value = param.partition('=')
-        if key == 'systemd.unified_cgroup_hierarchy' and value.lower() in ('0', 'false', 'no'):
-            return True
-    return False
-
-
 def check(kernel_parameters):
     """Report the CloudLinux-specific remediation when one applies."""
-    if not kernel_uses_cgroups_v1(kernel_parameters):
+    if not requests_legacy_hierarchy(kernel_parameters):
         return
 
     profile = get_active_tuned_profile()
@@ -106,8 +94,4 @@ def process():
     cmdline = next(api.consume(KernelCmdline), None)
     if not cmdline:
         return
-    parameters = [
-        p.key if p.value is None else '{}={}'.format(p.key, p.value)
-        for p in cmdline.parameters
-    ]
-    check(parameters)
+    check(cmdline.parameters)
