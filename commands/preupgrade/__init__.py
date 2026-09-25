@@ -36,12 +36,12 @@ from leapp.utils.output import beautify_actor_exception, report_errors, report_i
              choices=['ga', 'e4s', 'eus', 'aus'],
              value_type=str.lower)  # This allows the choices to be case insensitive
 @command_opt('iso', help='Use provided target RHEL installation image to perform the in-place upgrade.')
-@command_opt(
+@command_utils.command_opt_with_aliases(
     'target',
+    'target-version',
     help='Specify RHEL version to upgrade to for {} detected upgrade flavour'.format(
         command_utils.get_upgrade_flavour()
     ),
-    aliases=['target-version'],
     dest='target_version',
 )
 @command_opt(

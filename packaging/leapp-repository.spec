@@ -379,6 +379,7 @@ fi
 - Import the GPG keys shipped for the target major version rather than an unversioned AlmaLinux URL, which serves the AlmaLinux 8 keys and no others
 - Pass skip_if_unavailable to the target userspace repository queries; one stale repository file on the source otherwise made every query fail, silently disabling the kernel-minor check and misreporting the essential-package check
 - Gate the sources shipped on el7 against python3-only syntax, which the 0.24.0 merge introduced into shared code
+- Keep the leapp CLI loading on leapp-framework 6.0 - the newest el7 has, and the newest CloudLinux publishes for el8 - by registering --target-version without the aliases= option that only 6.2 understands
 
 * Wed Sep 09 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.20.0-13.cloudlinux
 - CLOS-7025: Improve CageFS handling after the upgrade
