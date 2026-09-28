@@ -307,6 +307,18 @@ def get_clmysql_version_from_pkg():
     return "%s%s" % (name, "".join(version.split(".")[:2]))
 
 
+def target_has_module_streams():
+    """
+    Whether the target serves the Governor databases as DNF module streams.
+
+    CloudLinux 8 and 9 do: their cl-mysql-meta repositories carry modules metadata.
+    CloudLinux 10 does not - its cl-mysql-meta repomd.xml lists no "modules" data,
+    RHEL 10 dropped modularity altogether, and the cl-MySQL/cl-MariaDB packages sit
+    in the CloudLinux 10 channel as plain packages.
+    """
+    return int(get_target_major_version()) < 10
+
+
 def get_pkg_prefix(clmysql_type):
     """
     Get a Yum package prefix string from cl-mysql type.

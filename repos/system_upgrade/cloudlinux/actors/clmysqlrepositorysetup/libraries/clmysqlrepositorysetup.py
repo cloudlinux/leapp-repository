@@ -23,6 +23,7 @@ from leapp.libraries.common.clmysql import (
     construct_repomap_data,
     get_pkg_prefix,
     resolve_clmysql_module_stream,
+    target_has_module_streams,
 )
 from leapp.libraries.common.rpms import has_package
 from leapp.libraries.stdlib import api
@@ -121,7 +122,11 @@ class MySqlRepositorySetupLibrary(object):
                     ]
                 )
 
-        if "cloudlinux" in self.mysql_types and self.clmysql_type:
+        if "cloudlinux" in self.mysql_types and self.clmysql_type and not target_has_module_streams():
+            # No stream to enable on the target, so the packages are upgraded as plain
+            # packages. Requesting one did nothing but log it as unavailable.
+            api.produce(RpmTransactionTasks(to_upgrade=build_install_list(get_pkg_prefix(self.clmysql_type))))
+        elif "cloudlinux" in self.mysql_types and self.clmysql_type:
             mod_name, mod_stream = resolve_clmysql_module_stream(
                 self.clmysql_type, baseurl=self.clmysql_meta_baseurl
             )
