@@ -12,6 +12,7 @@ import re
 from leapp import reporting
 from leapp.libraries.common.clmysql import DISTRO_DB_SERVERS, parse_clmysql_type
 from leapp.libraries.common.config.version import get_target_major_version
+from leapp.libraries.common.transactionplan import removed_without_successor
 from leapp.libraries.stdlib import api
 from leapp.models import FilteredRpmTransactionTasks, InstalledMySqlTypes, InstalledRPM
 
@@ -122,15 +123,6 @@ def _family(name):
     return match.group('family') if match else None
 
 
-def removed_without_successor(tasks):
-    """Distribution DB servers the transaction removes with nothing of their family installed."""
-    installing = {_family(name) for name in tasks.to_install} - {None}
-    return [
-        name for name in sorted(DISTRO_DB_SERVERS)
-        if name in tasks.to_remove and _family(name) not in installing
-    ]
-
-
 def _installed_version(name):
     for installed in api.consume(InstalledRPM):
         for pkg in installed.items:
@@ -170,5 +162,5 @@ def check_distro_server():
     if not tasks:
         return
     target = get_target_major_version()
-    for name in removed_without_successor(tasks):
+    for name in removed_without_successor(tasks, DISTRO_DB_SERVERS, _family):
         _report_distro_server(name, _installed_version(name), target)
