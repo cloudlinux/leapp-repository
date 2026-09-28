@@ -152,8 +152,12 @@ Requires:       leapp >= 0.17.0
 Requires:   cpio
 
 # Subpackage for managing fapolicyd rules for %{lpr_name} installed only if
-# fapolicyd is present on the system
+# fapolicyd is present on the system. Not built on el7: fapolicyd starts with
+# RHEL 8, and rpm 4.11 cannot parse this boolean dependency at all - the el7
+# build would stop before a source RPM exists. utils/check-spec-platforms.py guards it.
+%if 0%{?rhel} != 7
 Requires:       (%{lpr_name}-fapolicyd = %{version}-%{release} if fapolicyd)
+%endif
 
 # The leapp-repository rpm is renamed to %%{lpr_name}
 Obsoletes:      leapp-repository < 0.14.0-%{release}
@@ -255,6 +259,7 @@ Requires:   libdb-utils
 %{summary}
 
 
+%if 0%{?rhel} != 7
 %package -n %{lpr_name}-fapolicyd
 Summary:    Manage fapolicyd rules for %{lpr_name} during the upgrade
 
@@ -262,6 +267,7 @@ Requires:   fapolicyd
 
 %description -n %{lpr_name}-fapolicyd
 %{summary}
+%endif
 
 
 %prep
@@ -287,8 +293,10 @@ install -m 0755 -d %{buildroot}%{_sysconfdir}/leapp/files/
 install -m 0644 etc/leapp/transaction/* %{buildroot}%{_sysconfdir}/leapp/transaction
 
 # install rules necessary for fapolicy
+%if 0%{?rhel} != 7
 mkdir -p %{buildroot}%{_sysconfdir}/fapolicyd/rules.d/
 install -m 0644 etc/fapolicyd/rules.d/31-leapp-repository.rules %{buildroot}%{_sysconfdir}/fapolicyd/rules.d
+%endif
 
 # uncomment to install existing configs if any exists
 #install -m 0644 etc/leapp/actor_conf.d/* %%{buildroot}%%{_sysconfdir}/leapp/actor_conf.d
@@ -332,10 +340,12 @@ done;
 %endif
 
 
+%if 0%{?rhel} != 7
 %posttrans -n %{lpr_name}-fapolicyd
 if systemctl is-active --quiet fapolicyd; then
     systemctl restart fapolicyd
 fi
+%endif
 
 
 %files -n %{lpr_name}
@@ -357,8 +367,10 @@ fi
 # no files here
 
 
+%if 0%{?rhel} != 7
 %files -n %{lpr_name}-fapolicyd
 %attr(644, root, fapolicyd) %config %{_sysconfdir}/fapolicyd/rules.d/31-leapp-repository.rules
+%endif
 
 # DO NOT TOUCH SECTION BELOW IN UPSTREAM
 %changelog

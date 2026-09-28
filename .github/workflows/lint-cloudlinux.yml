@@ -7,11 +7,12 @@ name: Lint (cloudlinux)
 # stray non-ASCII bytes in Python source (em-dashes, smart quotes,
 # ellipsis from copy/paste, leftover BOMs).
 #
-# The checks are `make lint-non-ascii`, `make lint-spec-release` and
-# `make lint-py27-syntax`, which delegate to utils/check-non-ascii.py,
-# utils/check-spec-release.py and utils/check-py27-syntax.py. All three are
-# also prerequisites of `make lint`, so local developers get the identical
-# rules when they run the full lint locally.
+# The checks are `make lint-non-ascii`, `make lint-spec-release`,
+# `make lint-py27-syntax` and `make lint-spec-platforms`, which delegate to
+# utils/check-non-ascii.py, utils/check-spec-release.py,
+# utils/check-py27-syntax.py and utils/check-spec-platforms.py. All four are also
+# prerequisites of `make lint`, so local developers get the identical rules
+# when they run the full lint locally.
 #
 # lint-spec-release guards the release number the spec declares. Upstream's
 # Makefile stamped a computed release over it for COPR scratch builds, using
@@ -23,6 +24,13 @@ name: Lint (cloudlinux)
 # at python3.6, so every merge from them can bring f-strings, `yield from` or
 # PEP 484 annotations into shared common/ libraries - SyntaxErrors on CL7 that
 # nothing else here would catch until an upgrade failed on a customer box.
+#
+# lint-spec-platforms guards the builds upstream does not have. rpm 4.11 on
+# el7 predates boolean dependencies, so one `Requires: (a if b)` reaching the
+# el7 parse stops rpmbuild before a source RPM exists; and every build copies
+# its target's deps RPMs from the tarball `make source` assembles. The 0.24.0
+# merge broke both: the fapolicyd subpackage stopped the CL7 build, and the
+# resolved Makefile bundled no el9 deps, which failed the CL8 one.
 #
 # Broader fixes (running the full upstream test+lint matrix on cloudlinux
 # PRs) are tracked separately.
@@ -72,3 +80,13 @@ jobs:
 
       - name: make lint-py27-syntax
         run: make lint-py27-syntax
+
+  lint-spec-platforms:
+    name: Spec must build on every platform it ships for
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: make lint-spec-platforms
+        run: make lint-spec-platforms

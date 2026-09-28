@@ -264,7 +264,10 @@ source: prepare
 	@git archive --prefix "$(PKGNAME)-$(VERSION)/" -o "packaging/sources/$(PKGNAME)-$(VERSION).tar.gz" HEAD
 	@echo "--- PREPARE DEPS PKGS ---"
 	mkdir -p packaging/tmp/
+	@# One per build: each copies leapp*deps*el<next major> from the tarball, and
+	@# DIST_VERSION=N builds the el(N+1) deps. utils/check-spec-platforms.py guards it.
 	@$(MAKE) DIST_VERSION=7 _build_subpkg
+	@$(MAKE) DIST_VERSION=8 _build_subpkg
 	@$(MAKE) DIST_VERSION=9 _build_subpkg
 	@tar -czf packaging/sources/deps-pkgs.tar.gz -C packaging/RPMS/noarch `ls -1 packaging/RPMS/noarch | grep -o "[^/]*rpm$$"`
 	@rm -f packaging/RPMS/noarch/*.rpm
@@ -430,7 +433,14 @@ lint-py27-syntax:
 	@echo "--- Checking python2.7 parseability of what the el7toel8 RPM ships ---"
 	@python3 utils/check-py27-syntax.py $(PY27_PATHS)
 
-lint: lint-non-ascii lint-spec-release lint-py27-syntax _warn_misssing_repos_if_using_actor
+# Upstream builds for el8 and el9 only, so a merge from them can break the el7 build
+# or the deps bundle for a build they do not have - 0.24.0 did both. Pure stdlib
+# python3; one source of truth for `make lint` and CI.
+lint-spec-platforms:
+	@echo "--- Checking the spec builds on every platform it ships for ---"
+	@python3 utils/check-spec-platforms.py
+
+lint: lint-non-ascii lint-spec-release lint-py27-syntax lint-spec-platforms _warn_misssing_repos_if_using_actor
 	. $(VENVNAME)/bin/activate; \
 	echo "--- Linting ... ---" && \
 	SEARCH_PATH="$(TEST_PATHS)" && \
@@ -650,5 +660,5 @@ _warn_misssing_repos_if_using_actor:
 		exit 1; \
 	fi
 
-.PHONY: help build clean prepare sync-sources source srpm copr_build _build_local build_container print_release register install-deps install-deps-fedora  lint lint-non-ascii lint-spec-release lint-py27-syntax test_no_lint test dashboard_data fast_lint _warn_misssing_repos_if_using_actor
+.PHONY: help build clean prepare sync-sources source srpm copr_build _build_local build_container print_release register install-deps install-deps-fedora  lint lint-non-ascii lint-spec-release lint-py27-syntax lint-spec-platforms test_no_lint test dashboard_data fast_lint _warn_misssing_repos_if_using_actor
 .PHONY: test_container test_container_no_lint test_container_all test_container_all_no_lint clean_containers _build_container_image _test_container_ipu dev_test_no_lint
