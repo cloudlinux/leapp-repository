@@ -16,6 +16,7 @@ from leapp.libraries.common.cl_repofileutils import (
     REPOFILE_SUFFIX,
 )
 from leapp.libraries.common.clmysql import (
+    DISTRO_DB_SERVERS,
     MODULE_STREAMS,
     canonical_clmysql_type,
     clmysql_module_stream_from_url,
@@ -23,6 +24,7 @@ from leapp.libraries.common.clmysql import (
     get_pkg_prefix,
     resolve_clmysql_module_stream,
 )
+from leapp.libraries.common.rpms import has_package
 from leapp.libraries.stdlib import api
 from leapp.models import (
     InstalledMySqlTypes,
@@ -222,5 +224,11 @@ class MySqlRepositorySetupLibrary(object):
                     "Processing MySQL-related repofile {}, full path: {}".format(repofile_full, full_repo_path)
                 )
                 mysql_process(self, repofile_name, repofile_data)
+
+        # The operating system's own server has no repository file of its own, so it
+        # is recognised by package name. Whether it can be carried to the target is
+        # decided later, by check_cl_mysql_target, from the settled transaction.
+        if any(has_package(InstalledRPM, name) for name in DISTRO_DB_SERVERS):
+            self.mysql_types.add("distro")
 
         self.finalize()

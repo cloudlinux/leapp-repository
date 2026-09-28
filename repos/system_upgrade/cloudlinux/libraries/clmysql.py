@@ -28,6 +28,14 @@ ClMysqlTypeResult = collections.namedtuple(
 # Both files are present on CL7 and CL8+ when governor-mysql is installed.
 GOVERNOR_INSTALLED_TYPE_FILE = "/usr/share/lve/dbgovernor/mysql.type.installed"
 
+# The operating system's own database server packages: the "distro" variant, as
+# opposed to the Governor builds (cl-MySQL*, cl-MariaDB*) and the vendors'
+# (mysql-community-server, MariaDB-server). Variants are never swapped for each other.
+DISTRO_DB_SERVERS = {
+    "mysql-server": "MySQL",
+    "mariadb-server": "MariaDB",
+}
+
 # Matches the version directory Governor puts in the cl-mysql-meta repository URL, e.g.
 # ".../mysqlmeta/cl-mariadb-11.04/$basearch/" -> ("mariadb", "11", "04").
 CLMYSQL_REPO_URL_RE = re.compile(r"cl-(mariadb|mysql|percona)-(\d+)\.(\d+)", re.IGNORECASE)
