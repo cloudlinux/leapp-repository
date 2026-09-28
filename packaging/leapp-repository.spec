@@ -362,8 +362,9 @@ fi
 
 # DO NOT TOUCH SECTION BELOW IN UPSTREAM
 %changelog
-* Thu Sep 18 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.24.0-1.cloudlinux
+* Fri Sep 18 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.24.0-1.cloudlinux
 - Merge AlmaLinux ELevate 0.24.0, which brings the el9toel10 repository and two years of upstream work in the shared system_upgrade/common code
+- CLOS-7025: Improve CageFS handling after the upgrade
 - CLOS-7051: Add the el9toel10 repository, the basis of the CloudLinux 9 to 10 upgrade
 - Keep the el7toel8 repository, which upstream retired: CloudLinux 7 to 8 is still shipped
 - Require leapp-framework 6.2 on el8 and el9, and keep 6.0 on el7, where the framework is python2-leapp
@@ -382,9 +383,6 @@ fi
 - Pass skip_if_unavailable to the target userspace repository queries; one stale repository file on the source otherwise made every query fail, silently disabling the kernel-minor check and misreporting the essential-package check
 - Gate the sources shipped on el7 against python3-only syntax, which the 0.24.0 merge introduced into shared code
 - Keep the leapp CLI loading on leapp-framework 6.0 - the newest el7 has, and the newest CloudLinux publishes for el8 - by registering --target-version without the aliases= option that only 6.2 understands
-
-* Wed Sep 09 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.20.0-13.cloudlinux
-- CLOS-7025: Improve CageFS handling after the upgrade
 
 * Wed Sep 02 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.20.0-12.cloudlinux
 - CLOS-6911: Remove SysV runlevel links left over from the old system where the new one provides a real systemd service, which otherwise started the service outside its own unit - MariaDB was affected on servers using CloudLinux MySQL
