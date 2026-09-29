@@ -434,8 +434,9 @@ lint-py27-syntax:
 	@python3 utils/check-py27-syntax.py $(PY27_PATHS)
 
 # Upstream builds for el8 and el9 only, so a merge from them can break the el7 build
-# or the deps bundle for a build they do not have - 0.24.0 did both. Pure stdlib
-# python3; one source of truth for `make lint` and CI.
+# or the deps bundle for a build they do not have - 0.24.0 did both - and nothing
+# here may also be shipped by leapp-data-cloudlinux. Pure stdlib python3; one source
+# of truth for `make lint` and CI.
 lint-spec-platforms:
 	@echo "--- Checking the spec builds on every platform it ships for ---"
 	@python3 utils/check-spec-platforms.py

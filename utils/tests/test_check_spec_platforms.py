@@ -110,3 +110,24 @@ def test_a_build_whose_deps_are_not_bundled_is_reported():
 def test_a_spec_with_no_next_major_is_an_error_not_a_pass():
     with pytest.raises(check.UnknownCondition):
         check.missing_deps_bundles('Name: x\n', '\t@$(MAKE) DIST_VERSION=7 _build_subpkg\n')
+
+
+_ROOT = os.path.join(_HERE, '..', '..')
+
+
+def test_the_tree_ships_no_file_leapp_data_installs():
+    # Both RPMs owning one path with different content is a transaction check error:
+    # leapp-upgrade-el7toel8 and leapp-data-cloudlinux could not be installed together.
+    assert check.files_leapp_data_owns(_ROOT) == []
+
+
+def test_a_key_under_the_leapp_data_tree_is_reported(tmp_path):
+    keys = tmp_path.joinpath(*check.LEAPP_DATA_OWNED.split(os.sep), '9')
+    keys.mkdir(parents=True)
+    (keys / 'RPM-GPG-KEY-CloudLinux').write_text('key')
+    found = check.files_leapp_data_owns(str(tmp_path))
+    assert [os.path.basename(f) for f in found] == ['RPM-GPG-KEY-CloudLinux']
+
+
+def test_no_such_tree_is_clean(tmp_path):
+    assert check.files_leapp_data_owns(str(tmp_path)) == []

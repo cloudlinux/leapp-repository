@@ -190,8 +190,11 @@ Summary:    Meta-package with system dependencies of %{lpr_name} package
 # The package has been renamed, so let's obsoletes the old one
 Obsoletes:      leapp-repository-deps < 0.14.0-%{release}
 
-# The package was updated with new version of pes files
-Conflicts:      leapp-data-cloudlinux < 0.3-8
+# The package was updated with new version of pes files. 0.3-10 is the first
+# leapp-data that 0.24.0 can read: repository mapping format 1.3.0, data stream 4,
+# and the target GPG keys at common/files/distro/cloudlinux/rpm-gpg/<major>, which
+# leapp-data owns and this package does not ship (utils/check-spec-platforms.py).
+Conflicts:      leapp-data-cloudlinux < 0.3-10
 
 # IMPORTANT: every time the requirements are changed, increment number by one
 # - same for Requires in main package
@@ -381,6 +384,7 @@ fi
 - Keep the el7toel8 repository, which upstream retired: CloudLinux 7 to 8 is still shipped
 - Require leapp-framework 6.2 on el8 and el9, and keep 6.0 on el7, where the framework is python2-leapp
 - Repository mapping data must now be in format 1.3.0, which adds a required 'distro' field to every repository entry
+- Require leapp-data-cloudlinux 0.3-10, which carries the repository data and the target GPG keys this version reads
 - CLOS-7051: Install the target system-release alongside cloudlinux-release; from CloudLinux 10 the release package requires system-release(releasever) rather than providing it, and the provider is in neither the source system nor the CloudLinux 10 channel
 - CLOS-7051: Carry the CLN JWT into the target userspace, so the ALT-ELS repositories that serve the PHP, Python, Ruby and NodeJS Selectors on CloudLinux 10 can authenticate, and install the els-*-release packages so the upgraded system keeps its own repository files
 - CLOS-7051: Inhibit when an essential CloudLinux package has no build in the target repositories at all, which leapp would otherwise resolve by silently uninstalling it

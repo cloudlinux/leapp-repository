@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Check that the spec builds on every platform it is shipped for.
+"""Check that the packages build, and install beside leapp-data, on every platform.
 
-Two ways the 0.24.0 merge broke that, each invisible where it was merged:
+Three ways the 0.24.0 work broke that, each invisible where it was made:
 
 1. A boolean dependency the el7 build parses.
 
@@ -24,7 +24,16 @@ which `make source` builds with one `DIST_VERSION=N _build_subpkg` per next majo
 build for el7. The merge kept 7 and 9, so the CL8 build found no el9 deps and
 failed in %build, while the CL7 build of the same commit got as far as it could.
 
-Exit 0 when clean, 1 when either check fails, 2 when the spec cannot be evaluated.
+3. A file leapp-data-cloudlinux also ships.
+
+leapp-data-cloudlinux installs the CloudLinux target GPG keys into this package's
+tree, at repos/system_upgrade/common/files/distro/cloudlinux/rpm-gpg/<major> (its
+Makefile's GPG_DIR_RHEL). A copy committed here too makes both RPMs own the same path
+with different content, and the transaction check refuses to install them together:
+CL7 QA stopped at "Install Leapp Framework" on exactly that. leapp-data owns the keys,
+so nothing may be committed under that directory here.
+
+Exit 0 when clean, 1 when any check fails, 2 when the spec cannot be evaluated.
 Pure stdlib python3, like utils/check-spec-release.py, so CI can run it without
 rpm installed.
 """
@@ -35,6 +44,8 @@ import sys
 
 SPEC = os.path.join("packaging", "leapp-repository.spec")
 MAKEFILE = "Makefile"
+LEAPP_DATA_OWNED = os.path.join("repos", "system_upgrade", "common", "files", "distro",
+                                "cloudlinux", "rpm-gpg")
 
 _DEPENDENCY = re.compile(
     r"^(?:Build)?(?:Requires|Recommends|Suggests|Supplements|Enhances|Conflicts|"
@@ -122,6 +133,14 @@ def missing_deps_bundles(spec_text, makefile_text):
     return sorted(needed - bundled)
 
 
+def files_leapp_data_owns(root):
+    """Files committed under the tree leapp-data-cloudlinux installs into, relative."""
+    found = []
+    for dirpath, _dirs, files in os.walk(os.path.join(root, LEAPP_DATA_OWNED)):
+        found.extend(os.path.relpath(os.path.join(dirpath, name), root) for name in files)
+    return sorted(found)
+
+
 def main():
     try:
         with open(SPEC) as fp:
@@ -130,6 +149,7 @@ def main():
             makefile = fp.read()
         found = boolean_dependencies(spec.splitlines(), rhel=7)
         missing = missing_deps_bundles(spec, makefile)
+        shared = files_leapp_data_owns(".")
     except UnknownCondition as e:
         print("ERROR: cannot evaluate {0}: {1}".format(SPEC, e), file=sys.stderr)
         return 2
@@ -143,9 +163,17 @@ def main():
         print("ERROR: `make source` in {0} bundles no deps for DIST_VERSION {1}, which the"
               " spec's builds copy in %build. Add a `DIST_VERSION=N _build_subpkg` line for"
               " each.".format(MAKEFILE, ", ".join(str(n) for n in missing)), file=sys.stderr)
-    if found or missing:
+    if shared:
+        print("ERROR: leapp-data-cloudlinux installs these, so shipping them here too makes"
+              " both packages own one path with different content:", file=sys.stderr)
+        for path in shared:
+            print("  " + path, file=sys.stderr)
+        print("Remove them from this tree; leapp-data owns the CloudLinux target keys.",
+              file=sys.stderr)
+    if found or missing or shared:
         return 1
-    print("The spec parses on el7 and every build's deps are bundled.")
+    print("The spec parses on el7, every build's deps are bundled, and nothing here is"
+          " shipped by leapp-data too.")
     return 0
 
 

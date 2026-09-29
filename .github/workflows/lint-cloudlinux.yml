@@ -30,7 +30,10 @@ name: Lint (cloudlinux)
 # el7 parse stops rpmbuild before a source RPM exists; and every build copies
 # its target's deps RPMs from the tarball `make source` assembles. The 0.24.0
 # merge broke both: the fapolicyd subpackage stopped the CL7 build, and the
-# resolved Makefile bundled no el9 deps, which failed the CL8 one.
+# resolved Makefile bundled no el9 deps, which failed the CL8 one. It also
+# rejects any file under the tree leapp-data-cloudlinux installs into (the
+# CloudLinux target GPG keys): a second copy here made the two RPMs
+# uninstallable together.
 #
 # Broader fixes (running the full upstream test+lint matrix on cloudlinux
 # PRs) are tracked separately.
