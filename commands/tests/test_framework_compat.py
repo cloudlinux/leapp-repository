@@ -56,3 +56,55 @@ def test_target_accepts_both_spellings(cmd, flag):
     parser = argparse.ArgumentParser()
     cmd.command.apply_parser(None, parser=parser)
     assert parser.parse_args([flag, '10.2']).target_version == '10.2'
+
+
+# 6.0's add_option forwards a default only `if default:`, so a falsy one - [] above
+# all - never reaches argparse and the option arrives as None. 6.2 checks
+# `is not None`. Code that relies on default=[] works on 6.2 and crashes on 6.0:
+# `set(args.enable_experimental_feature)` took down every `leapp preupgrade` on CL7.
+_FALSY = (ast.List, ast.Tuple, ast.Dict, ast.Set)
+
+
+def _falsy_literal(node):
+    if isinstance(node, _FALSY):
+        return not getattr(node, 'elts', None) and not getattr(node, 'keys', None)
+    value = getattr(node, 'value', getattr(node, 'n', getattr(node, 's', None)))
+    return isinstance(node, (ast.Constant, ast.Num, ast.Str, ast.NameConstant)) and not value \
+        and value is not None
+
+
+def test_no_command_opt_relies_on_a_falsy_default():
+    offenders = []
+    for path in _sources():
+        with open(path) as fp:
+            tree = ast.parse(fp.read(), path)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and _is_command_opt(node):
+                if any(kw.arg == 'default' and _falsy_literal(kw.value) for kw in node.keywords):
+                    offenders.append('{0}:{1}'.format(os.path.relpath(path, COMMANDS_DIR), node.lineno))
+    assert not offenders, (
+        'leapp-framework 6.0 drops a falsy command_opt default, so the option is None there;'
+        ' normalise it where it is read instead: {0}'.format(offenders)
+    )
+
+
+@pytest.mark.parametrize('cmd', [upgrade_cmd, preupgrade_cmd], ids=['upgrade', 'preupgrade'])
+def test_prepare_configuration_accepts_what_6_0_passes(cmd, monkeypatch):
+    from leapp.cli.commands import command_utils
+    from leapp.cli.commands.upgrade import util
+
+    parser = argparse.ArgumentParser()
+    cmd.command.apply_parser(None, parser=parser)
+    args = parser.parse_args([])
+    # What 6.0 hands over for an unused append option, whatever default was declared.
+    args.enable_experimental_feature = None
+    args.whitelist_experimental = None
+
+    monkeypatch.setattr(os, 'environ', dict(os.environ))
+    monkeypatch.setattr(command_utils, 'get_source_distro_id', lambda: 'cloudlinux')
+    monkeypatch.setattr(command_utils, 'get_target_release', lambda _args: ('8.10', 'default'))
+    monkeypatch.setattr(command_utils, 'get_os_release_version_id', lambda _path: '7.9')
+
+    configuration = util.prepare_configuration(args)
+    assert list(configuration['whitelist_experimental']) == []
+    assert os.environ['LEAPP_EXPERIMENTAL'] == '0'

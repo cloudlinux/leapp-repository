@@ -399,7 +399,7 @@ fi
 - Import the GPG keys shipped for the target major version rather than an unversioned AlmaLinux URL, which serves the AlmaLinux 8 keys and no others
 - Pass skip_if_unavailable to the target userspace repository queries; one stale repository file on the source otherwise made every query fail, silently disabling the kernel-minor check and misreporting the essential-package check
 - Gate the sources shipped on el7 against python3-only syntax, which the 0.24.0 merge introduced into shared code
-- Keep the leapp CLI loading on leapp-framework 6.0 - the newest el7 has, and the newest CloudLinux publishes for el8 - by registering --target-version without the aliases= option that only 6.2 understands
+- Keep the leapp CLI working on leapp-framework 6.0 - the newest el7 has, and the newest CloudLinux publishes for el8 - where it would not load, because of an aliases= option only 6.2 understands, and 'leapp preupgrade' and 'leapp upgrade' failed at once, because 6.0 passes an unused --enable-experimental-feature as nothing rather than an empty list
 
 * Wed Sep 02 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.20.0-12.cloudlinux
 - CLOS-6911: Remove SysV runlevel links left over from the old system where the new one provides a real systemd service, which otherwise started the service outside its own unit - MariaDB was affected on servers using CloudLinux MySQL

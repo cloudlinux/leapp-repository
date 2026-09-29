@@ -257,6 +257,9 @@ def prepare_configuration(args):
         os.environ['LEAPP_EXPERIMENTAL'] = '0'
         args.whitelist_experimental = []
 
+    # leapp-framework 6.0 (python2-leapp, the newest el7 has) drops a falsy option
+    # default, so an unused --enable-experimental-feature arrives as None there.
+    args.enable_experimental_feature = args.enable_experimental_feature or []
     for experimental_feature in set(args.enable_experimental_feature):
         # It might happen that there are no experimental features, which would allow user
         # to pass us any string as an experimental feature.
