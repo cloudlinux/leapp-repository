@@ -12,11 +12,11 @@ def extract_path_with_img_extension(initramfs_path):
 
         if not os.path.exists(initramfs_path):
             msg = 'Failed to extract the path to the default\'s boot entry initramfs.'
-            details = {'details': 'The current initramfs path {}'.format(initramfs_path)}
+            details = {'details': f'The current initramfs path {initramfs_path}'}
             raise StopActorExecutionError(msg, details=details)
 
     except ValueError:
-        details = {'details': 'The current initramfs path {}'.format(initramfs_path)}
+        details = {'details': f'The current initramfs path {initramfs_path}'}
         # The system is using some non-traditional naming scheme, no point in trying to extract image path
         # Better safe, than sorry, we stop the upgrade here rather than crashing because of a weird path
         msg = ('The initrd path of the default kernel does not contain the `.img` extension, '

@@ -20,16 +20,16 @@ def _report_filter_detection():
     title = 'LVM filter definition detected.'
     summary = (
         'Beginning with RHEL 9, LVM devices file is used by default to select devices used by '
-        'LVM. Since leapp detected the use of LVM filter in the {} configuration '
+        f'LVM. Since leapp detected the use of LVM filter in the {LVM_CONFIG_PATH} configuration '
         'file, the configuration won\'t be modified to use devices file during the upgrade and '
-        'the LVM filter will remain in use after the upgrade.'.format(LVM_CONFIG_PATH)
+        'the LVM filter will remain in use after the upgrade.'
     )
 
     remediation_hint = (
         'While not required, switching to the LVM devices file from the LVM filter is possible '
         'using the following command. The command uses the existing LVM filter to create the system.devices '
         'file which is then used instead of the LVM filter. Before running the command, '
-        'make sure that \'use_devicesfile=1\' is set in {}.'.format(LVM_CONFIG_PATH)
+        f'make sure that \'use_devicesfile=1\' is set in {LVM_CONFIG_PATH}.'
     )
     remediation_command = ['vgimportdevices']
 

@@ -387,7 +387,7 @@ def generate_initram_disk(context):
     cmd = os.path.join('/', INITRAM_GEN_SCRIPT_NAME)
 
     # FIXME: issue #376
-    context.call(['/bin/sh', '-c', '{} {}'.format(env_variables, cmd)], env=env)
+    context.call(['/bin/sh', '-c', f'{env_variables} {cmd}'], env=env)
 
     boot_files_info = copy_boot_files(context)
     return boot_files_info

@@ -436,7 +436,7 @@ def prepare_target_userspace(context, userspace_dir, enabled_repos, packages):
 
                 if details.get('hint'):
                     # keep the proxy hint, we don't know which one is the problem
-                    details['hint'] = '{}\n\n{}'.format(details['hint'], check_rhel_release_hint)
+                    details['hint'] = f"{details['hint']}\n\n{check_rhel_release_hint}"
                 else:
                     details['hint'] = check_rhel_release_hint
 

@@ -9,7 +9,6 @@ from enum import Enum
 from leapp.actors import config as actor_config
 from leapp.exceptions import CommandError
 from leapp.utils import audit, path
-from leapp.utils.clicmd import _ensure_command
 
 HANA_BASE_PATH = '/hana/shared'
 HANA_SAPCONTROL_PATH_X86_64 = 'exe/linuxx86_64/hdb/sapcontrol'
@@ -307,32 +306,3 @@ def load_actor_configs_and_store_it_in_db(context, repositories, framework_cfg):
 
 def get_available_target_distro_ids():
     return [member.value for member in DistroIDs]
-
-
-def command_opt_with_aliases(name, *aliases, **kwargs):
-    """Like command_opt, but registers --<name> AND extra long-form aliases.
-
-    leapp-framework 6.0 (leapp 0.18.0 - the newest el7 will ever have, and the
-    newest CloudLinux publishes for el8) accepts only one long name, so a plain
-    `aliases=` kwarg - which 6.2 added and upstream now uses - trips on
-    `add_option() got an unexpected keyword argument 'aliases'` and stops every
-    subcommand from loading. argparse, however, supports multiple long
-    forms natively when add_argument is called with several name strings.
-    We bypass add_option and call the lower-level _add_opt directly.
-
-    `dest` is derived by argparse from the first long form (here `name`),
-    so existing consumers reading `args.<name>` keep working unchanged.
-    """
-    is_flag = kwargs.pop('is_flag', False)
-    help_text = kwargs.pop('help', '')
-    action = kwargs.pop('action', 'store_true' if is_flag else 'store')
-    inherit = kwargs.pop('inherit', False)
-
-    @_ensure_command
-    def wrapper(f):
-        names = ['--' + n.lstrip('-') for n in (name,) + aliases]
-        f.command._add_opt(*names, action=action, help=help_text,
-                           internal={'wrapped': f, 'inherit': inherit},
-                           **kwargs)
-        return f
-    return wrapper

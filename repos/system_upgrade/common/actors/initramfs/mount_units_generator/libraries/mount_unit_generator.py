@@ -232,8 +232,7 @@ def copy_units_into_system_location(upgrade_container_ctx, dir_with_our_mount_un
         if rel_path == '.':
             rel_path = ''
         dst_dir = os.path.join(upgrade_container_ctx.full_path(dest_inside_container), rel_path)
-        if not os.path.isdir(dst_dir):
-            os.makedirs(dst_dir, 0o755)
+        os.makedirs(dst_dir, mode=0o755, exist_ok=True)
 
         for file in files:
             src_file = os.path.join(root, file)

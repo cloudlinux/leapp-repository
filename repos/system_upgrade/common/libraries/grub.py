@@ -382,7 +382,7 @@ def get_grub_devices():
         raise GRUBDeviceError(
             'Cannot determine whether /boot is managed by MD RAID: {}'
             .format(err.message)
-        )
+        ) from err
 
     candidates = []
     if is_mdraid:
