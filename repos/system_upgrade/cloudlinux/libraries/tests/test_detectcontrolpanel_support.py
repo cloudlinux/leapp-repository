@@ -10,15 +10,22 @@ def test_supported_panels_do_not_block_up_to_cl9(panel, target_major):
     assert dcp.panel_blocks_upgrade(panel, target_major) is False
 
 
-@pytest.mark.parametrize('panel', [dcp.CPANEL_NAME, dcp.DIRECTADMIN_NAME, dcp.PLESK_NAME])
-def test_supported_panels_block_on_cl10(panel):
-    """No control panel supports CloudLinux 10 yet, so all of them block it.
+@pytest.mark.parametrize('panel', [dcp.CPANEL_NAME, dcp.PLESK_NAME])
+def test_panels_without_cl10_support_block_on_cl10(panel):
+    """cPanel and Plesk do not support CloudLinux 10 yet, so they block it.
 
     This is the case the previous code got wrong: it asked "is this panel one we
     know about" rather than "is this panel supported on the target", so a cPanel
     host would have been allowed to upgrade to a release cPanel cannot run on.
     """
     assert dcp.panel_blocks_upgrade(panel, '10') is True
+
+
+def test_directadmin_does_not_block_on_cl10():
+    """DirectAdmin follows the no-panel path, which supports CL9 to CL10; leapp
+    carries no DirectAdmin-specific data, and update_directadmin rebuilds it on
+    the first boot as on the earlier paths."""
+    assert dcp.panel_blocks_upgrade(dcp.DIRECTADMIN_NAME, '10') is False
 
 
 @pytest.mark.parametrize('panel', [dcp.NOPANEL_NAME, dcp.INTEGRATED_NAME, dcp.UNKNOWN_NAME])

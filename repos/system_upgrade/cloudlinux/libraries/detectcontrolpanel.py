@@ -21,12 +21,14 @@ CLSYSCONFIG = '/etc/sysconfig/cloudlinux'
 _NOT_A_PANEL = (NOPANEL_NAME, INTEGRATED_NAME, UNKNOWN_NAME)
 
 # Panels we carry upgrade data for, keyed by the target major versions they
-# support. cPanel, DirectAdmin and Plesk are supported through CloudLinux 9.
-# None of them supports CloudLinux 10 yet - which is also why there is no EA4
-# vendor data for el10 - so on a CL10 target every panel blocks.
+# support. cPanel and Plesk are supported through CloudLinux 9; neither supports
+# CloudLinux 10 yet - which is also why there is no EA4 vendor data for el10 - so
+# on a CL10 target they block. DirectAdmin follows the no-panel path, which does
+# go to 10: leapp carries no DirectAdmin-specific data, and update_directadmin
+# rebuilds it on the first boot.
 _PANEL_SUPPORTED_TARGET_MAJORS = {
     CPANEL_NAME: ('8', '9'),
-    DIRECTADMIN_NAME: ('8', '9'),
+    DIRECTADMIN_NAME: ('8', '9', '10'),
     PLESK_NAME: ('8', '9'),
 }
 
