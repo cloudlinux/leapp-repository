@@ -381,6 +381,7 @@ fi
 - Merge AlmaLinux ELevate 0.24.0, which brings the el9toel10 repository and two years of upstream work in the shared system_upgrade/common code
 - CLOS-7025: Improve CageFS handling after the upgrade
 - CLOS-7051: Add the el9toel10 repository, the basis of the CloudLinux 9 to 10 upgrade
+- Upgrade CloudLinux 8 to CloudLinux 9.8, the current CloudLinux 9 release, instead of 9.4, whose package channel is outdated and lacks parts of the current CloudLinux stack, such as lve-stats3
 - Keep the el7toel8 repository, which upstream retired: CloudLinux 7 to 8 is still shipped
 - Require leapp-framework 6.2 on el8 and el9, and keep 6.0 on el7, where the framework is python2-leapp
 - Repository mapping data must now be in format 1.3.0, which adds a required 'distro' field to every repository entry

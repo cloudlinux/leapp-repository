@@ -197,10 +197,16 @@ def test_shipped_config_defines_cloudlinux_paths():
     assert 'cloudlinux' in paths
     default = paths['cloudlinux']['default']
 
-    # Carried over unchanged from the flat config CloudLinux used before 0.24.0;
-    # retargeting either of these is a release decision, not a packaging one.
+    # The target minor is the target's --releasever, which picks the CloudLinux
+    # channel the upgrade is served from: cloudlinux-x86_64-server-9.<N> on CLN and
+    # the no-auth mirrors alike. A minor that is no longer current is a frozen
+    # channel. 9.4's stopped in December 2024, so CL8 -> CL9 landed on a CloudLinux
+    # stack older than the CL8 one and had no lve-stats3 to upgrade to. Target the
+    # newest released CL9 minor; elevate-qa's post-upgrade check fails when a newer
+    # one is out and this has gone stale. Retargeting is a release decision.
     assert default['7.9'] == ['8.10']
-    assert default['8.10'] == ['9.4']
+    assert default['8.10'] == ['9.8']
+    assert default['8'] == ['9.8']
 
     # CL9 -> CL10 targets an AlmaLinux 10 minor, not a bare "10".
     #
