@@ -10,7 +10,7 @@ gets exercised here.
 import pytest
 
 from leapp.libraries.actor import checktargetkernelminor as lib
-from leapp.libraries.common.testutils import logger_mocked
+from leapp.libraries.common.testutils import CurrentActorMocked, logger_mocked
 
 
 # ---------------------------------------------------------------------------
@@ -243,8 +243,29 @@ def test_repoquery_tolerates_an_unavailable_repo(monkeypatch):
 
     monkeypatch.setattr(lib, "run", fake_run)
     monkeypatch.setattr(lib.api, "current_logger", logger_mocked())
+    monkeypatch.setattr(lib.api, "current_actor", CurrentActorMocked(dst_ver="9.8"))
 
     rows = lib._repoquery("/installroot", "kernel-core")
 
     assert rows == [('5.14.0', '611.5.1.el9_7')]
     assert any('skip_if_unavailable=1' in arg for arg in seen['cmd'])
+
+
+def test_repoquery_reads_the_channel_the_transaction_will(monkeypatch):
+    """cloudlinux-release comes from cloudlinux-x86_64-server-$releasever, and
+    without --releasever dnf reads the bare-major channel instead of the target
+    minor's - so the check compared the kernel against a channel the upgrade
+    never installs from."""
+    seen = {}
+
+    def fake_run(cmd, **dummy):
+        seen['cmd'] = cmd
+        return {'stdout': ''}
+
+    monkeypatch.setattr(lib, "run", fake_run)
+    monkeypatch.setattr(lib.api, "current_logger", logger_mocked())
+    monkeypatch.setattr(lib.api, "current_actor", CurrentActorMocked(dst_ver="9.8"))
+
+    lib._repoquery("/installroot", "cloudlinux-release")
+
+    assert '--releasever=9.8' in seen['cmd']

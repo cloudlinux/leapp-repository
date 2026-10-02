@@ -25,6 +25,7 @@ import re
 
 from leapp import reporting
 from leapp.libraries.common.config.version import get_target_major_version
+from leapp.libraries.common.targetrepoquery import repoquery_cmd
 from leapp.libraries.stdlib import api, CalledProcessError, run
 from leapp.models import InstalledRPM
 
@@ -82,17 +83,10 @@ def _repoquery(installroot, name):
     every query exit 1. Read as "no build", that named all fourteen essential
     packages when one was genuinely behind.
 
-    skip_if_unavailable keeps such a repository from taking the query down in
-    the first place; None is what is left when something else does.
+    repoquery_cmd keeps such a repository from taking the query down in the
+    first place; None is what is left when something else does.
     """
-    cmd = [
-        'dnf', '-q', 'repoquery',
-        '--installroot={0}'.format(installroot),
-        '--setopt=*.skip_if_unavailable=1',
-        '--available',
-        '--queryformat=%{epoch}|%{version}|%{release}\n',
-        name,
-    ]
+    cmd = repoquery_cmd(installroot, '%{epoch}|%{version}|%{release}\n', name)
     try:
         result = run(cmd, split=False)
     except (OSError, CalledProcessError) as exc:

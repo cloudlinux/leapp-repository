@@ -21,6 +21,7 @@ import re
 
 from leapp import reporting
 from leapp.libraries.common.config.version import get_target_major_version
+from leapp.libraries.common.targetrepoquery import repoquery_cmd
 from leapp.libraries.stdlib import CalledProcessError, api, run
 
 
@@ -95,20 +96,10 @@ def _repoquery(installroot, pkg):
     nothing available - callers treat absence as "cannot determine" rather
     than as evidence of safety.
     """
-    cmd = [
-        'dnf', '-q', 'repoquery',
-        '--installroot={}'.format(installroot),
-        # The target userspace inherits the source system's repofiles, and one
-        # stale entry - cl-mysql, whose baseurl interpolates $releasever and
-        # 404s on the target - makes dnf exit 1 for every query. Without this
-        # the caller then reads an empty list, logs "could not determine both
-        # minors" and returns, switching the CLOS-3716 guard off on exactly the
-        # kind of untidy box most likely to need it.
-        '--setopt=*.skip_if_unavailable=1',
-        '--available',
-        '--queryformat=%{version}|%{release}\n',
-        pkg,
-    ]
+    # A query that fails reads as an empty list, so the caller logs "could not
+    # determine both minors" and returns: repoquery_cmd's skip_if_unavailable is
+    # what keeps one stale repofile from switching the CLOS-3716 guard off.
+    cmd = repoquery_cmd(installroot, '%{version}|%{release}\n', pkg)
     try:
         result = run(cmd, split=False)
     except (OSError, CalledProcessError) as exc:

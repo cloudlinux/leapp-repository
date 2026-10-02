@@ -2,7 +2,7 @@ import pytest
 
 from leapp import reporting
 from leapp.libraries.actor import checkclstacksurvives as lib
-from leapp.libraries.common.testutils import create_report_mocked, logger_mocked
+from leapp.libraries.common.testutils import create_report_mocked, CurrentActorMocked, logger_mocked
 from leapp.libraries.stdlib import api, CalledProcessError
 from leapp.models import InstalledRPM, RPM
 
@@ -222,9 +222,32 @@ def test_repoquery_tolerates_an_unavailable_repo(monkeypatch):
 
     monkeypatch.setattr(lib, 'run', fake_run)
     monkeypatch.setattr(api, 'current_logger', logger_mocked())
+    monkeypatch.setattr(api, 'current_actor', CurrentActorMocked(dst_ver='10'))
 
     assert lib._repoquery('/installroot', 'cagefs') == [('0', '7.6.47', '1.el10.cloudlinux')]
     assert any('skip_if_unavailable=1' in arg for arg in seen['cmd'])
+
+
+def test_repoquery_reads_the_channel_the_transaction_will(monkeypatch):
+    """The CloudLinux channel is cloudlinux-x86_64-server-$releasever. Left to
+    itself, dnf takes $releasever from the target userspace's release package -
+    "9" - and cloudlinux-x86_64-server-9 is frozen with 9.0-era content, without
+    lve-stats3 at all. The transaction reads cloudlinux-x86_64-server-9.8, which
+    carries it, so every CL8 to CL9 upgrade was inhibited over a package it
+    installs."""
+    seen = {}
+
+    def fake_run(cmd, **dummy):
+        seen['cmd'] = cmd
+        return {'stdout': ''}
+
+    monkeypatch.setattr(lib, 'run', fake_run)
+    monkeypatch.setattr(api, 'current_logger', logger_mocked())
+    monkeypatch.setattr(api, 'current_actor', CurrentActorMocked(dst_ver='9.8'))
+
+    lib._repoquery('/installroot', 'lve-stats3')
+
+    assert '--releasever=9.8' in seen['cmd']
 
 
 def test_repoquery_returns_none_when_the_command_fails(monkeypatch):
@@ -233,5 +256,6 @@ def test_repoquery_returns_none_when_the_command_fails(monkeypatch):
 
     monkeypatch.setattr(lib, 'run', boom)
     monkeypatch.setattr(api, 'current_logger', logger_mocked())
+    monkeypatch.setattr(api, 'current_actor', CurrentActorMocked(dst_ver='10'))
 
     assert lib._repoquery('/installroot', 'cagefs') is None

@@ -398,7 +398,7 @@ fi
 - CLOS-7051: Resolve the EFI directory by target major version; CloudLinux 10 boots as almalinux where 8 and 9 boot as centos
 - CLOS-7051: Stop acting on CLN and control panel assumptions CloudLinux 10 does not hold
 - Import the GPG keys shipped for the target major version rather than an unversioned AlmaLinux URL, which serves the AlmaLinux 8 keys and no others
-- Pass skip_if_unavailable to the target userspace repository queries; one stale repository file on the source otherwise made every query fail, silently disabling the kernel-minor check and misreporting the essential-package check
+- Query the target repositories the way the upgrade transaction reads them: for the target minor version, rather than the bare CloudLinux 9 channel, which is frozen with 9.0-era content and lacks lve-stats3, and with skip_if_unavailable, without which one stale repository file on the source made every query fail, silently disabling the kernel-minor check and misreporting the essential-package check
 - Gate the sources shipped on el7 against python3-only syntax, which the 0.24.0 merge introduced into shared code
 - Keep the leapp CLI working on leapp-framework 6.0 - the newest el7 has, and the newest CloudLinux publishes for el8 - where it would not load, because of an aliases= option only 6.2 understands, and 'leapp preupgrade' and 'leapp upgrade' failed at once, because 6.0 passes an unused --enable-experimental-feature as nothing rather than an empty list
 
