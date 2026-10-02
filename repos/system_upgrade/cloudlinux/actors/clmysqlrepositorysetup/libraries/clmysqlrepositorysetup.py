@@ -16,13 +16,16 @@ from leapp.libraries.common.cl_repofileutils import (
     REPOFILE_SUFFIX,
 )
 from leapp.libraries.common.clmysql import (
+    DISTRO_DB_SERVERS,
     MODULE_STREAMS,
     canonical_clmysql_type,
     clmysql_module_stream_from_url,
     construct_repomap_data,
     get_pkg_prefix,
     resolve_clmysql_module_stream,
+    target_has_module_streams,
 )
+from leapp.libraries.common.rpms import has_package
 from leapp.libraries.stdlib import api
 from leapp.models import (
     InstalledMySqlTypes,
@@ -119,7 +122,11 @@ class MySqlRepositorySetupLibrary(object):
                     ]
                 )
 
-        if "cloudlinux" in self.mysql_types and self.clmysql_type:
+        if "cloudlinux" in self.mysql_types and self.clmysql_type and not target_has_module_streams():
+            # No stream to enable on the target, so the packages are upgraded as plain
+            # packages. Requesting one did nothing but log it as unavailable.
+            api.produce(RpmTransactionTasks(to_upgrade=build_install_list(get_pkg_prefix(self.clmysql_type))))
+        elif "cloudlinux" in self.mysql_types and self.clmysql_type:
             mod_name, mod_stream = resolve_clmysql_module_stream(
                 self.clmysql_type, baseurl=self.clmysql_meta_baseurl
             )
@@ -222,5 +229,11 @@ class MySqlRepositorySetupLibrary(object):
                     "Processing MySQL-related repofile {}, full path: {}".format(repofile_full, full_repo_path)
                 )
                 mysql_process(self, repofile_name, repofile_data)
+
+        # The operating system's own server has no repository file of its own, so it
+        # is recognised by package name. Whether it can be carried to the target is
+        # decided later, by check_cl_mysql_target, from the settled transaction.
+        if any(has_package(InstalledRPM, name) for name in DISTRO_DB_SERVERS):
+            self.mysql_types.add("distro")
 
         self.finalize()

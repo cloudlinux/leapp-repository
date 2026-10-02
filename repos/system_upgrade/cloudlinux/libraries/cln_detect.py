@@ -81,6 +81,18 @@ def _spacewalk_plugin_installed():
     return False
 
 
+def is_spacewalk_plugin_installed():
+    """Public name for the plugin-package probe.
+
+    is_cln_package_channel_active() is the wrong question for code whose job is
+    to *fix* a disabled plugin config: that helper returns False precisely when
+    the config says enabled = 0, so gating on it would switch such code off in
+    the one case it exists for. What that code needs to know is narrower - can a
+    spacewalk plugin run here at all.
+    """
+    return _spacewalk_plugin_installed()
+
+
 def is_cln_package_channel_active():
     """Return True when CLN is the active package channel for this system.
 

@@ -1,10 +1,11 @@
-
 from leapp.libraries.actor import setuptargetrepos_repomap
-from leapp.libraries.common.config.version import get_source_major_version
+from leapp.libraries.common.config import get_source_distro_id, get_target_distro_id
+from leapp.libraries.common.config.version import get_source_major_version, get_source_version
 from leapp.libraries.common.repomaputils import combine_repomap_messages
 from leapp.libraries.stdlib import api
 from leapp.models import (
     CustomTargetRepository,
+    DistroTargetRepository,
     InstalledRPM,
     RepositoriesBlacklisted,
     RepositoriesFacts,
@@ -17,6 +18,12 @@ from leapp.models import (
     UsedRepositories,
     VendorCustomTargetRepositoryList
 )
+from leapp.utils.deprecation import suppress_deprecation
+
+RHUI_CLIENT_REPOIDS_RHEL88_TO_RHEL810 = {
+    'rhui-microsoft-azure-rhel8-sapapps': 'rhui-microsoft-azure-rhel8-base-sap-apps',
+    'rhui-microsoft-azure-rhel8-sap-ha': 'rhui-microsoft-azure-rhel8-base-sap-ha',
+}
 
 
 def _get_enabled_repoids():
@@ -71,8 +78,9 @@ def _get_used_repo_dict():
 def _get_mapped_repoids(repomap, src_repoids):
     mapped_repoids = set()
     src_maj_ver = get_source_major_version()
+    src_distro = get_source_distro_id()
     for repoid in src_repoids:
-        if repomap.get_pesid_repo_entry(repoid, src_maj_ver):
+        if repomap.get_pesid_repo_entry(repoid, src_maj_ver, src_distro):
             mapped_repoids.add(repoid)
     return mapped_repoids
 
@@ -83,7 +91,7 @@ def _get_skipped_repoids(enabled_repoids, mapped_repoids, used_repoids):
 
     Excludes elevate repositories: their packages are leapp tooling itself,
     intentionally not carried into the target system, so reporting them as
-    "unknown to Leapp" is a false positive.
+    "unknown to Leapp" is a false positive (CLOS-4332).
     """
     skipped = enabled_repoids & used_repoids - mapped_repoids
     return {repoid for repoid in skipped if "elevate" not in repoid}
@@ -128,6 +136,7 @@ def _get_vendor_custom_repos(enabled_repos, mapping_list):
     return result
 
 
+@suppress_deprecation(RHELTargetRepository)
 def process():
     # Load relevant data from messages
     used_repoids_dict = _get_used_repo_dict()
@@ -146,13 +155,13 @@ def process():
         "Vendor repolist: {}".format([repo.repoid for repo in vendor_repos])
     )
 
-    # Setup repomap handler from combined repomapping message
-    repo_mapping_msg = combine_repomap_messages(repo_mapping_list)
+    # Setup repomap handler - combine all RepositoriesMapping messages (main + vendor)
+    combined_mapping_msg = combine_repomap_messages(repo_mapping_list)
 
     rhui_info = next(api.consume(RHUIInfo), None)
     cloud_provider = rhui_info.provider if rhui_info else ''
 
-    repomap = setuptargetrepos_repomap.RepoMapDataHandler(repo_mapping_msg, cloud_provider=cloud_provider)
+    repomap = setuptargetrepos_repomap.RepoMapDataHandler(combined_mapping_msg, cloud_provider=cloud_provider)
 
     # Filter set of repoids from installed packages so that it contains only repoids with mapping
     repoids_from_installed_packages_with_mapping = _get_mapped_repoids(repomap, repoids_from_installed_packages)
@@ -162,14 +171,24 @@ def process():
     # can be used to upgrade installed packages.
     repoids_to_map = enabled_repoids.union(repoids_from_installed_packages_with_mapping)
 
+    # RHEL8.10 use a different repoid for client repository, but the repomapping mechanism cannot distinguish these
+    # as it does not use minor versions. Therefore, we have to hardcode these changes.
+    if get_source_distro_id() == 'rhel' and get_source_version() == '8.10':
+        for rhel88_rhui_client_repoid, rhel810_rhui_client_repoid in RHUI_CLIENT_REPOIDS_RHEL88_TO_RHEL810.items():
+            if rhel810_rhui_client_repoid in repoids_to_map:
+                # Replace RHEL8.10 rhui client repoids with RHEL8.8 repoids,
+                # so that they are mapped to target repoids correctly.
+                repoids_to_map.remove(rhel810_rhui_client_repoid)
+                repoids_to_map.add(rhel88_rhui_client_repoid)
+
     # Set default repository channels for the repomap
     # TODO(pstodulk): what about skip this completely and keep the default 'ga'..?
     default_channels = setuptargetrepos_repomap.get_default_repository_channels(repomap, repoids_to_map)
     repomap.set_default_channels(default_channels)
 
-    # Get target RHEL repoids based on the repomap
+    # Get target distro repoids based on the repomap
     expected_repos = repomap.get_expected_target_pesid_repos(repoids_to_map)
-    target_rhel_repoids = set()
+    target_distro_repoids = set()
     for target_pesid, target_pesidrepo in expected_repos.items():
         if not target_pesidrepo:
             # NOTE this could happen only for enabled repositories part of the set,
@@ -187,7 +206,7 @@ def process():
         if target_pesidrepo.repoid in excluded_repoids:
             api.current_logger().debug('Skipping the {} repo (excluded).'.format(target_pesidrepo.repoid))
             continue
-        target_rhel_repoids.add(target_pesidrepo.repoid)
+        target_distro_repoids.add(target_pesidrepo.repoid)
 
     # FIXME: this could possibly result into a try to enable multiple repositories
     # from the same family (pesid). But unless we have a bug in previous actors,
@@ -199,10 +218,14 @@ def process():
             if repo in excluded_repoids:
                 api.current_logger().debug('Skipping the {} repo from setup task (excluded).'.format(repo))
                 continue
-            target_rhel_repoids.add(repo)
+            target_distro_repoids.add(repo)
 
     # create the final lists and sort them (for easier testing)
-    rhel_repos = [RHELTargetRepository(repoid=repoid) for repoid in sorted(target_rhel_repoids)]
+    if get_target_distro_id() == 'rhel':
+        rhel_repos = [RHELTargetRepository(repoid=repoid) for repoid in sorted(target_distro_repoids)]
+    else:
+        rhel_repos = []
+    distro_repos = [DistroTargetRepository(repoid=repoid) for repoid in sorted(target_distro_repoids)]
     custom_repos = [repo for repo in custom_repos if repo.repoid not in excluded_repoids]
     custom_repos = sorted(custom_repos, key=lambda x: x.repoid)
 
@@ -212,9 +235,7 @@ def process():
 
     # produce message about skipped repositories
     enabled_repoids_with_mapping = _get_mapped_repoids(repomap, enabled_repoids)
-    skipped_repoids = _get_skipped_repoids(
-        enabled_repoids, enabled_repoids_with_mapping, set(used_repoids_dict.keys())
-    )
+    skipped_repoids = _get_skipped_repoids(enabled_repoids, enabled_repoids_with_mapping, set(used_repoids_dict.keys()))
     if skipped_repoids:
         pkgs = set()
         for repo in skipped_repoids:
@@ -223,5 +244,6 @@ def process():
 
     api.produce(TargetRepositories(
         rhel_repos=rhel_repos,
+        distro_repos=distro_repos,
         custom_repos=custom_repos,
     ))

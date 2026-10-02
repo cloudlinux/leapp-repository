@@ -1,38 +1,30 @@
-Architecture:                    s390x
-CPU op-mode(s):                  32-bit, 64-bit
-Byte Order:                      Big Endian
-CPU(s):                          2
-On-line CPU(s) list:             0,1
-Vendor ID:                       IBM/S390
-Model name:                      -
-Machine type:                    2827
-Thread(s) per core:              1
-Core(s) per socket:              1
-Socket(s) per book:              1
-Book(s) per drawer:              1
-Drawer(s):                       2
-CPU dynamic MHz:                 5200
-CPU static MHz:                  5200
-BogoMIPS:                        3241.00
-Dispatching mode:                horizontal
-Flags:                           esan3 zarch stfle msa ldisp eimm dfp edat etf3eh highgprs te vx vxd vxe gs vxe2 vxp sort dflt sie
-Hypervisor:                      z/VM 7.2.0
-Hypervisor vendor:               IBM
-Virtualization type:             full
-L1d cache:                       256 KiB (2 instances)
-L1i cache:                       256 KiB (2 instances)
-L2d cache:                       8 MiB (2 instances)
-L2i cache:                       8 MiB (2 instances)
-L3 cache:                        256 MiB
-L4 cache:                        960 MiB
-NUMA node(s):                    1
-NUMA node0 CPU(s):               0,1
-Vulnerability Itlb multihit:     Not affected
-Vulnerability L1tf:              Not affected
-Vulnerability Mds:               Not affected
-Vulnerability Meltdown:          Not affected
-Vulnerability Spec store bypass: Not affected
-Vulnerability Spectre v1:        Mitigation; __user pointer sanitization
-Vulnerability Spectre v2:        Mitigation; etokens
-Vulnerability Srbds:             Not affected
-Vulnerability Tsx async abort:   Not affected
+{
+   "lscpu": [
+      {"field": "Architecture:", "data": "s390x"},
+      {"field": "CPU op-mode(s):", "data": "32-bit, 64-bit"},
+      {"field": "Byte Order:", "data": "Big Endian"},
+      {"field": "CPU(s):", "data": "4"},
+      {"field": "On-line CPU(s) list:", "data": "0-3"},
+      {"field": "Thread(s) per core:", "data": "1"},
+      {"field": "Core(s) per socket:", "data": "1"},
+      {"field": "Socket(s) per book:", "data": "1"},
+      {"field": "Book(s) per drawer:", "data": "1"},
+      {"field": "Drawer(s):", "data": "4"},
+      {"field": "NUMA node(s):", "data": "1"},
+      {"field": "Vendor ID:", "data": "IBM/S390"},
+      {"field": "Machine type:", "data": "3931"},
+      {"field": "CPU dynamic MHz:", "data": "5200"},
+      {"field": "CPU static MHz:", "data": "5200"},
+      {"field": "BogoMIPS:", "data": "3331.00"},
+      {"field": "Hypervisor:", "data": "KVM/Linux"},
+      {"field": "Hypervisor vendor:", "data": "KVM"},
+      {"field": "Virtualization type:", "data": "full"},
+      {"field": "Dispatching mode:", "data": "horizontal"},
+      {"field": "L1d cache:", "data": "128K"},
+      {"field": "L1i cache:", "data": "128K"},
+      {"field": "L2 cache:", "data": "32768K"},
+      {"field": "L3 cache:", "data": "262144K"},
+      {"field": "NUMA node0 CPU(s):", "data": "0-3"},
+      {"field": "Flags:", "data": "esan3 zarch stfle msa ldisp eimm dfp edat etf3eh highgprs te vx vxd vxe gs vxe2 vxp sort dflt vxp2 nnpa sie"}
+   ]
+}

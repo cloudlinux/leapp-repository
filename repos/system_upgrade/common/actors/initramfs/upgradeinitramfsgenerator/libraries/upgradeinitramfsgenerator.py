@@ -1,6 +1,7 @@
+import itertools
 import os
 import shutil
-from distutils.version import LooseVersion
+from collections import namedtuple
 
 from leapp.exceptions import StopActorExecutionError
 from leapp.libraries.common import dnfplugin, mounting
@@ -10,6 +11,8 @@ from leapp.models import RequiredUpgradeInitramPackages  # deprecated
 from leapp.models import UpgradeDracutModule  # deprecated
 from leapp.models import (
     BootContent,
+    LiveModeConfig,
+    LVMConfig,
     TargetOSInstallationImage,
     TargetUserSpaceInfo,
     TargetUserSpaceUpgradeTasks,
@@ -30,23 +33,35 @@ def _get_target_kernel_version(context):
 
     kernel_version = None
     try:
-        results = context.call(['rpm', '-qa', 'kernel-core'], split=True)
-
-        versions = [ver.replace('kernel-core-', '') for ver in results['stdout']]
-        api.current_logger().debug(
-            'Versions detected {versions}.'
-            .format(versions=versions))
-        sorted_versions = sorted(versions, key=LooseVersion, reverse=True)
-        kernel_version = next(iter(sorted_versions), None)
+        # NOTE: Currently we install/use always kernel-core in the upgrade
+        # initramfs. We do not use currently any different kernel package
+        # in the container. Note this could change in future e.g. on aarch64
+        # for IPU 9 -> 10.
+        # TODO(pstodulk): Investigate situation on ARM systems. OAMG-11433
+        results = context.call(['rpm', '-qa', 'kernel-core'], split=True)['stdout']
     except CalledProcessError:
         raise StopActorExecutionError(
-            'Cannot get version of the installed kernel.',
-            details={'Problem': 'Could not query the currently installed kernel through rmp.'})
+            'Cannot get version of the installed kernel inside container.',
+            details={'Problem': 'Could not query the currently installed kernel inside container using rpm.'})
+
+    if len(results) > 1:
+        # this is should not happen. It's hypothetic situation, which alone it's
+        # already error. So skipping more sophisticated implementation.
+        # The container is always created during the upgrade and as that we expect
+        # always one-and-only kernel installed.
+        raise StopActorExecutionError(
+            'Cannot get version of the installed kernel inside container.',
+            details={'Problem': 'Detected unexpectedly multiple kernels inside target userspace container.'}
+        )
+
+    # kernel version == version-release from package
+    kernel_version = '-'.join(results[0].rsplit("-", 2)[-2:])
+    api.current_logger().debug('Detected kernel version inside container: {}.'.format(kernel_version))
 
     if not kernel_version:
         raise StopActorExecutionError(
-            'Cannot get version of the installed kernel.',
-            details={'Problem': 'A rpm query for the available kernels did not produce any results.'})
+            'Cannot get version of the installed kernel inside container.',
+            details={'Problem': 'An rpm query for the available kernels did not produce any results.'})
 
     return kernel_version
 
@@ -179,6 +194,7 @@ def _copy_files(context, files):
             context.remove_tree(file_task.dst)
             context.copytree_to(file_task.src, file_task.dst)
         else:
+            context.makedirs(os.path.dirname(file_task.dst))
             context.copy_to(file_task.src, file_task.dst)
 
 
@@ -257,7 +273,7 @@ def _get_fspace(path, convert_to_mibs=False, coefficient=1):
     coefficient = min(coefficient, 1)
     fspace_bytes = int(stat.f_frsize * stat.f_bavail * coefficient)
     if convert_to_mibs:
-        return int(fspace_bytes / 1024 / 1024)  # noqa: W1619; pylint: disable=old-division
+        return int(fspace_bytes / 1024 / 1024)
     return fspace_bytes
 
 
@@ -303,6 +319,30 @@ def _check_free_space(context):
         )
 
 
+InitramfsIncludes = namedtuple('InitramfsIncludes', ('files', 'dracut_modules', 'kernel_modules'))
+
+
+def collect_initramfs_includes():
+    """
+    Collect modules and files requested to be included in initramfs.
+
+    :returns: A summary of requested initramfs includes
+    :rtype: InitramfsIncludes
+    """
+    dracut_modules = _get_dracut_modules()  # Use lists as leapp's models are not hashable
+    kernel_modules = list()
+    additional_initramfs_files = set()
+
+    for task in api.consume(UpgradeInitramfsTasks):
+        dracut_modules.extend(task.include_dracut_modules)
+        kernel_modules.extend(task.include_kernel_modules)
+        additional_initramfs_files.update(task.include_files)
+
+    return InitramfsIncludes(files=list(additional_initramfs_files),
+                             dracut_modules=list(dracut_modules),
+                             kernel_modules=list(kernel_modules))
+
+
 def generate_initram_disk(context):
     """
     Function to actually execute the init ramdisk creation.
@@ -317,35 +357,143 @@ def generate_initram_disk(context):
 
     # TODO(pstodulk): Add possibility to add particular drivers
     # Issue #645
-    modules = {
-        'dracut': _get_dracut_modules(),  # deprecated
-        'kernel': [],
-    }
-    files = set()
-    for task in api.consume(UpgradeInitramfsTasks):
-        modules['dracut'].extend(task.include_dracut_modules)
-        modules['kernel'].extend(task.include_kernel_modules)
-        files.update(task.include_files)
+    initramfs_includes = collect_initramfs_includes()
 
-    copy_dracut_modules(context, modules['dracut'])
-    copy_kernel_modules(context, modules['kernel'])
+    copy_dracut_modules(context, initramfs_includes.dracut_modules)
+    copy_kernel_modules(context, initramfs_includes.kernel_modules)
+
+    def fmt_module_list(module_list):
+        return ','.join(mod.name for mod in module_list)
+
+    env_variables = [
+        'LEAPP_KERNEL_VERSION={kernel_version}',
+        'LEAPP_ADD_DRACUT_MODULES="{dracut_modules}"',
+        'LEAPP_KERNEL_ARCH={arch}',
+        'LEAPP_ADD_KERNEL_MODULES="{kernel_modules}"',
+        'LEAPP_DRACUT_INSTALL_FILES="{files}"'
+    ]
+
+    if next(api.consume(LVMConfig), None):
+        env_variables.append('LEAPP_DRACUT_LVMCONF="1"')
+
+    env_variables = ' '.join(env_variables)
+    env_variables = env_variables.format(
+        kernel_version=_get_target_kernel_version(context),
+        dracut_modules=fmt_module_list(initramfs_includes.dracut_modules),
+        kernel_modules=fmt_module_list(initramfs_includes.kernel_modules),
+        arch=api.current_actor().configuration.architecture,
+        files=' '.join(initramfs_includes.files)
+    )
+    cmd = os.path.join('/', INITRAM_GEN_SCRIPT_NAME)
 
     # FIXME: issue #376
-    context.call([
-        '/bin/sh', '-c',
-        'LEAPP_KERNEL_VERSION={kernel_version} '
-        'LEAPP_ADD_DRACUT_MODULES="{dracut_modules}" LEAPP_KERNEL_ARCH={arch} '
-        'LEAPP_ADD_KERNEL_MODULES="{kernel_modules}" '
-        'LEAPP_DRACUT_INSTALL_FILES="{files}" {cmd}'.format(
-            kernel_version=_get_target_kernel_version(context),
-            dracut_modules=','.join([mod.name for mod in modules['dracut']]),
-            kernel_modules=','.join([mod.name for mod in modules['kernel']]),
-            arch=api.current_actor().configuration.architecture,
-            files=' '.join(files),
-            cmd=os.path.join('/', INITRAM_GEN_SCRIPT_NAME))
-    ], env=env)
+    context.call(['/bin/sh', '-c', f'{env_variables} {cmd}'], env=env)
 
-    copy_boot_files(context)
+    boot_files_info = copy_boot_files(context)
+    return boot_files_info
+
+
+def get_boot_artifact_names():
+    """
+    Get the name of leapp's initramfs and upgrade kernel.
+
+    :returns: A tuple (kernel_name, initramfs_name).
+    :rtype: Tuple[str, str]
+    """
+
+    arch = api.current_actor().configuration.architecture
+
+    kernel = 'vmlinuz-upgrade.{}'.format(arch)
+    initramfs = 'initramfs-upgrade.{}.img'.format(arch)
+
+    return (kernel, initramfs)
+
+
+def copy_target_kernel_from_userspace_into_boot(context, target_kernel_ver, kernel_artifact_name):
+    userspace_kernel_installation_path = '/lib/modules/{}/vmlinuz'.format(target_kernel_ver)
+    api.current_logger().info(
+        'Copying target kernel ({0}) into host system\'s /boot'.format(userspace_kernel_installation_path)
+    )
+    host_kernel_dest = os.path.join('/boot', kernel_artifact_name)
+    context.copy_from(userspace_kernel_installation_path, host_kernel_dest)
+
+
+def _generate_livemode_initramfs(context, userspace_initramfs_dest, target_kernel_ver):
+    """
+    Generate livemode initramfs
+
+    Collects modifications requested by received messages, synthesize and executed corresponding
+    dracut command. The created initramfs is placed at USERSPACE_ARTIFACTS_PATH/<initramfs_artifact_name>
+    in the userspace.
+
+    :param userspace_initramfs_dest str: The path at which the generated initramfs will be placed.
+    :param target_kernel_ver str: Kernel version installed into the userspace that will be used by the live image.
+    :returns: None
+    """
+    env = {}
+    if get_target_major_version() == '9':
+        env = {'SYSTEMD_SECCOMP': '0'}
+
+    initramfs_includes = collect_initramfs_includes()
+
+    copy_dracut_modules(context, initramfs_includes.dracut_modules)
+    copy_kernel_modules(context, initramfs_includes.kernel_modules)
+
+    dracut_modules = ['livenet', 'dmsquash-live'] + [mod.name for mod in initramfs_includes.dracut_modules]
+
+    cmd = ['dracut', '--verbose', '--compress', 'xz',
+           '--no-hostonly', '--no-hostonly-default-device',
+           '-o', 'plymouth dash resume ifcfg earlykdump',
+           '--lvmconf', '--mdadmconf',
+           '--kver', target_kernel_ver, '-f', userspace_initramfs_dest]
+
+    # Add included files
+    cmd.extend(itertools.chain(*(('--install', file) for file in initramfs_includes.files)))
+
+    # Add dracut modules
+    cmd.extend(itertools.chain(*(('--add', module) for module in dracut_modules)))
+
+    # Add kernel modules
+    cmd.extend(itertools.chain(*(('--add-drivers', module.name) for module in initramfs_includes.kernel_modules)))
+
+    try:
+        context.call(cmd, env=env)
+    except CalledProcessError as error:
+        api.current_logger().error('Failed to generate (live) upgrade image. Error: %s', error)
+        raise StopActorExecutionError(
+            'Cannot generate the initramfs for the live mode.',
+            details={'Problem': 'the dracut command failed: {}'.format(cmd)})
+
+
+def prepare_boot_files_for_livemode(context):
+    """
+    Generate the initramfs for the live mode  using dracut modules: dracut-live dracut-squash.
+    Silently replace upgrade boot images.
+    """
+    api.current_logger().info('Building initramfs for the live upgrade image.')
+
+    # @Todo(mhecko): See whether we need to do permission manipulation from dracut_install_modules.
+    # @Todo(mhecko): We need to handle upgrade kernel HMAC if we ever want to boot with FIPS in livemode
+
+    target_kernel_ver = _get_target_kernel_version(context)
+    kernel_artifact_name, initramfs_artifact_name = get_boot_artifact_names()
+
+    copy_target_kernel_from_userspace_into_boot(context, target_kernel_ver, kernel_artifact_name)
+
+    USERSPACE_ARTIFACTS_PATH = '/artifacts'
+    context.makedirs(USERSPACE_ARTIFACTS_PATH, exists_ok=True)
+    userspace_initramfs_dest = os.path.join(USERSPACE_ARTIFACTS_PATH, initramfs_artifact_name)
+
+    _generate_livemode_initramfs(context, userspace_initramfs_dest, target_kernel_ver)
+
+    api.current_logger().debug('Copying artifacts from userspace into host\'s /boot')
+    host_initramfs_dest = os.path.join('/boot', initramfs_artifact_name)
+    host_kernel_dest = os.path.join('/boot', kernel_artifact_name)
+    context.copy_from(userspace_initramfs_dest, host_initramfs_dest)
+
+    return BootContent(kernel_path=host_kernel_dest,
+                       initram_path=host_initramfs_dest,
+                       kernel_hmac_path='')
 
 
 def create_upgrade_hmac_from_target_hmac(original_hmac_path, upgrade_hmac_path, upgrade_kernel):
@@ -368,8 +516,10 @@ def create_upgrade_hmac_from_target_hmac(original_hmac_path, upgrade_hmac_path, 
 
 def copy_boot_files(context):
     """
-    Function to copy the generated initram and corresponding kernel to /boot - Additionally produces a BootContent
-    message with their location.
+    Function to copy the generated initram and corresponding kernel to /boot
+
+
+    :returns: BootContent message containing the information about where the artifacts can be found.
     """
     curr_arch = api.current_actor().configuration.architecture
     kernel = 'vmlinuz-upgrade.{}'.format(curr_arch)
@@ -390,13 +540,19 @@ def copy_boot_files(context):
     kernel_hmac_path = context.full_path(os.path.join('/artifacts', kernel_hmac))
     create_upgrade_hmac_from_target_hmac(kernel_hmac_path, content.kernel_hmac_path, kernel)
 
-    api.produce(content)
+    return content
 
 
 def process():
     userspace_info = next(api.consume(TargetUserSpaceInfo), None)
     target_iso = next(api.consume(TargetOSInstallationImage), None)
+    livemode_config = next(api.consume(LiveModeConfig), None)
+
     with mounting.NspawnActions(base_dir=userspace_info.path) as context:
         with mounting.mount_upgrade_iso_to_root_dir(userspace_info.path, target_iso):
             prepare_userspace_for_initram(context)
-            generate_initram_disk(context)
+            if livemode_config and livemode_config.is_enabled:
+                boot_file_info = prepare_boot_files_for_livemode(context)
+            else:
+                boot_file_info = generate_initram_disk(context)
+            api.produce(boot_file_info)

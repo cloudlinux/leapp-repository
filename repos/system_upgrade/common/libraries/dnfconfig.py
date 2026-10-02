@@ -1,26 +1,6 @@
 from leapp.exceptions import StopActorExecutionError
-from leapp.libraries.common.config.version import get_source_major_version
+from leapp.libraries.common.rpms import get_leapp_packages
 from leapp.libraries.stdlib import api, CalledProcessError
-
-
-def get_leapp_packages():
-    """
-    Return the list of leapp and leapp-repository rpms that should be preserved
-    during the upgrade.
-
-    It's list of packages that should be preserved, not what is really
-    installed.
-
-    The snactor RPM doesn't have to be installed, but if so, we have to take
-    care about that too as well to prevent broken dnf transaction.
-    """
-    # TODO: should we set the seatbelt and exclude leapp RPMs from the target
-    # system too?
-    generic = ['leapp', 'snactor']
-    if get_source_major_version() == '7':
-        return generic + ['python2-leapp', 'leapp-upgrade-el7toel8']
-
-    return generic + ['python3-leapp', 'leapp-upgrade-el8toel9']
 
 
 def _strip_split(data, sep, maxsplit=-1):
@@ -63,8 +43,11 @@ def _get_main_dump(context, disable_plugins):
 
     output_data = {}
     for line in data[main_start:]:
+        if not line.strip():
+            continue
         try:
             key, val = _strip_split(line, '=', 1)
+            output_data[key] = val
         except ValueError:
             # This is not expected to happen, but call it a seatbelt in case
             # the dnf dump implementation will change and we will miss it
@@ -74,7 +57,6 @@ def _get_main_dump(context, disable_plugins):
             api.current_logger().warning(
                 'Cannot parse the dnf dump correctly, line: {}'.format(line))
             pass
-        output_data[key] = val
 
     return output_data
 

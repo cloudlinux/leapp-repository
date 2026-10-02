@@ -20,16 +20,10 @@ def get_kernel_pkg_name(rhel_major_version, kernel_type):
     :returns: Kernel package name
     :rtype: str
     """
-    if rhel_major_version == '7':
-        kernel_pkg_name_table = {
-            kernel_lib.KernelType.ORDINARY: 'kernel',
-            kernel_lib.KernelType.REALTIME: 'kernel-rt'
-        }
-    else:
-        kernel_pkg_name_table = {
-            kernel_lib.KernelType.ORDINARY: 'kernel-core',
-            kernel_lib.KernelType.REALTIME: 'kernel-rt-core'
-        }
+    kernel_pkg_name_table = {
+        kernel_lib.KernelType.ORDINARY: 'kernel-core',
+        kernel_lib.KernelType.REALTIME: 'kernel-rt-core'
+    }
     return kernel_pkg_name_table[kernel_type]
 
 
@@ -70,7 +64,7 @@ def get_boot_files_provided_by_kernel_pkg(kernel_nevra):
 
 @suppress_deprecation(InstalledTargetKernelVersion)
 def process():
-    # pylint: disable=no-else-return  - false positive
+    # pylint: disable=no-else-return  # false positive
     # TODO: should we take care about stuff of kernel-rt and kernel in the same
     # time when both are present? or just one? currently, handle only one
     # of these during the upgrade. kernel-rt has higher prio when original sys

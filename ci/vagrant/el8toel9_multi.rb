@@ -24,7 +24,6 @@ Vagrant.configure('2') do |config|
   target_distros = {
     almalinux: 'almalinux/8',
     # centosstream: 'generic/centos8s',
-    eurolinux: 'eurolinux-vagrant/eurolinux-8',
     rocky: 'generic/rocky8'
   }
 

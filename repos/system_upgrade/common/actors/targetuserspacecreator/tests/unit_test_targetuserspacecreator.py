@@ -3,6 +3,7 @@ from __future__ import division, print_function
 import os
 import subprocess
 import sys
+import tempfile
 from collections import namedtuple
 
 import pytest
@@ -10,9 +11,10 @@ import pytest
 from leapp import models, reporting
 from leapp.exceptions import StopActorExecution, StopActorExecutionError
 from leapp.libraries.actor import userspacegen
-from leapp.libraries.common import overlaygen, repofileutils, rhsm
+from leapp.libraries.common import distro, overlaygen, repofileutils, rhsm
 from leapp.libraries.common.config import architecture
-from leapp.libraries.common.testutils import CurrentActorMocked, logger_mocked, produce_mocked
+from leapp.libraries.common.testutils import create_report_mocked, CurrentActorMocked, logger_mocked, produce_mocked
+from leapp.libraries.stdlib import api, CalledProcessError
 from leapp.utils.deprecation import suppress_deprecation
 
 if sys.version_info < (2, 8):
@@ -34,10 +36,13 @@ def adjust_cwd():
     os.chdir(previous_cwd)
 
 
-class MockedMountingBase(object):
+class MockedMountingBase:
     def __init__(self, **dummy_kwargs):
         self.called_copytree_from = []
         self.target = ''
+
+    def open(self, fullpath, *args, **kwargs):
+        return open(self, fullpath, *args, **kwargs)
 
     def copytree_from(self, src, dst):
         self.called_copytree_from.append((src, dst))
@@ -45,7 +50,8 @@ class MockedMountingBase(object):
     def __call__(self, **dummy_kwarg):
         yield self
 
-    def call(self, *args, **kwargs):
+    @staticmethod
+    def call(*args, **kwargs):
         return {'stdout': ''}
 
     def nspawn(self):
@@ -90,8 +96,7 @@ def traverse_structure(structure, root=Path('/')):
         filepath = root / filename
 
         if isinstance(links_to, dict):
-            for pair in traverse_structure(links_to, filepath):
-                yield pair
+            yield from traverse_structure(links_to, root=filepath)
         else:
             yield (filepath, links_to)
 
@@ -875,6 +880,14 @@ def test_get_product_certificate_path(monkeypatch, adjust_cwd, result, dst_ver, 
     assert userspacegen._get_product_certificate_path() in result
 
 
+@pytest.mark.parametrize('src_distro', ('rhel', 'centos'))
+def test_get_product_certificate_path_nonrhel(monkeypatch, src_distro):
+    actor = CurrentActorMocked(src_distro=src_distro, dst_distro='notrhel')
+    monkeypatch.setattr(userspacegen.api, 'current_actor', actor)
+    path = userspacegen._get_product_certificate_path()
+    assert path is None
+
+
 @suppress_deprecation(models.RequiredTargetUserspacePackages)
 def _gen_packages_msgs():
     _cfiles = [
@@ -912,7 +925,7 @@ _SAEE = StopActorExecutionError
 _SAE = StopActorExecution
 
 
-class MockedConsume(object):
+class MockedConsume:
     def __init__(self, *args):
         self._msgs = []
         for arg in args:
@@ -1001,7 +1014,7 @@ def test_consume_data(monkeypatch, raised, no_rhsm, testdata):
     # do not write never into testdata inside the test !!
     xfs = testdata.xfs
     custom_repofiles = testdata.custom_repofiles
-    _exp_pkgs = {'dnf', 'dnf-command(config-manager)'}
+    _exp_pkgs = {'dnf', 'dnf-command(config-manager)', 'util-linux'}
     _exp_files = []
 
     def _get_pkgs(msg):
@@ -1056,10 +1069,11 @@ def test_consume_data(monkeypatch, raised, no_rhsm, testdata):
             assert raised[1] in err.value.message
         else:
             assert userspacegen.api.current_logger.warnmsg
-            assert any([raised[1] in x for x in userspacegen.api.current_logger.warnmsg])
+            assert any(raised[1] in x for x in userspacegen.api.current_logger.warnmsg)
 
 
 @pytest.mark.skip(reason="Currently not implemented in the actor. It's TODO.")
+@suppress_deprecation(models.RHELTargetRepository)
 def test_gather_target_repositories(monkeypatch):
     monkeypatch.setattr(userspacegen.api, 'current_actor', CurrentActorMocked())
     # The available RHSM repos
@@ -1092,6 +1106,7 @@ def test_gather_target_repositories_none_available(monkeypatch):
         assert inhibitors[0].get('title', '') == 'Cannot find required basic RHEL target repositories.'
 
 
+@suppress_deprecation(models.RHELTargetRepository)
 def test_gather_target_repositories_rhui(monkeypatch):
 
     indata = testInData(
@@ -1101,7 +1116,9 @@ def test_gather_target_repositories_rhui(monkeypatch):
     monkeypatch.setattr(userspacegen.api, 'current_actor', CurrentActorMocked())
     monkeypatch.setattr(userspacegen, '_get_all_available_repoids', lambda x: [])
     monkeypatch.setattr(
-        userspacegen, '_get_rh_available_repoids', lambda x, y: ['rhui-1', 'rhui-2', 'rhui-3']
+        userspacegen,
+        "_get_distro_available_repoids",
+        lambda dummy_context, dummy_indata: {"rhui-1", "rhui-2", "rhui-3"},
     )
     monkeypatch.setattr(rhsm, 'skip_rhsm', lambda: True)
     monkeypatch.setattr(
@@ -1110,6 +1127,10 @@ def test_gather_target_repositories_rhui(monkeypatch):
                 rhel_repos=[
                     models.RHELTargetRepository(repoid='rhui-1'),
                     models.RHELTargetRepository(repoid='rhui-2')
+                ],
+                distro_repos=[
+                    models.DistroTargetRepository(repoid='rhui-1'),
+                    models.DistroTargetRepository(repoid='rhui-2')
                 ]
             )
             ])
@@ -1118,6 +1139,7 @@ def test_gather_target_repositories_rhui(monkeypatch):
     assert target_repoids == set(['rhui-1', 'rhui-2'])
 
 
+@suppress_deprecation(models.RHELTargetRepository)
 def test_gather_target_repositories_baseos_appstream_not_available(monkeypatch):
     # If the repos that Leapp identifies as required for the upgrade (based on the repo mapping and PES data) are not
     # available, an exception shall be raised
@@ -1176,6 +1198,66 @@ def test_gather_target_repositories_baseos_appstream_not_available(monkeypatch):
     assert inhibitors[0].get('title', '') == 'Cannot find required basic RHEL target repositories.'
 
 
+def test__get_distro_available_repoids_norhsm_norhui(monkeypatch):
+    """
+    Empty set should be returned when on rhel and skip_rhsm == True.
+    """
+    monkeypatch.setattr(
+        userspacegen.api, "current_actor", CurrentActorMocked(release_id="rhel")
+    )
+    monkeypatch.setattr(userspacegen.api.current_actor(), 'produce', produce_mocked())
+
+    monkeypatch.setattr(rhsm, 'skip_rhsm', lambda: True)
+    monkeypatch.setattr(distro, 'get_target_distro_repoids', lambda ctx: [])
+
+    indata = testInData(_PACKAGES_MSGS, None, None, _XFS_MSG, _STORAGEINFO_MSG, None)
+    # NOTE: context is not used without rhsm, for simplicity setting to None
+    repoids = userspacegen._get_distro_available_repoids(None, indata)
+    assert repoids == set()
+
+
+@pytest.mark.parametrize("src_distro", ["rhel", "centos", "almalinux"])
+@pytest.mark.parametrize(
+    "dst_distro, skip_rhsm", [("rhel", False), ("centos", True), ("almalinux", True)]
+)
+@pytest.mark.parametrize("src_ver, dst_ver", [("9.6", "10.2"), ("8.10", "9.6")])
+def test__get_distro_available_repoids_nobaserepos_inhibit(
+    monkeypatch, src_distro, dst_distro, skip_rhsm, src_ver, dst_ver
+):
+    """
+    Test that get_distro_available repoids reports and raises if there are no base repos.
+    """
+    monkeypatch.setattr(
+        userspacegen.api,
+        "current_actor",
+        CurrentActorMocked(
+            src_distro=src_distro, dst_distro=dst_distro, src_ver=src_ver, dst_ver=dst_ver
+        ),
+    )
+    monkeypatch.setattr(userspacegen.api.current_actor(), 'produce', produce_mocked())
+    monkeypatch.setattr(reporting, "create_report", create_report_mocked())
+
+    monkeypatch.setattr(rhsm, 'skip_rhsm', lambda: skip_rhsm)
+    monkeypatch.setattr(distro, 'get_target_distro_repoids', lambda ctx: [])
+
+    indata = testInData(_PACKAGES_MSGS, None, None, _XFS_MSG, _STORAGEINFO_MSG, None)
+
+    if src_distro in ("centos", "almalinux") and src_ver == "8.10" or src_distro != dst_distro:
+        # should not raise on CS 8to9, AL 8to9, and when converting
+        userspacegen._get_distro_available_repoids(None, indata)
+        return
+
+    with pytest.raises(StopActorExecution):
+        # NOTE: context is not used without rhsm, for simplicity setting to None
+        userspacegen._get_distro_available_repoids(None, indata)
+
+        # TODO adjust the asserts when the report is made distro agnostic
+        assert reporting.create_report.called == 1
+        report = reporting.create_report.reports[0]
+        assert "Cannot find required basic RHEL target repositories" in report["title"]
+        assert reporting.Groups.INHIBITOR in report["groups"]
+
+
 def mocked_consume_data():
     packages = {'dnf', 'dnf-command(config-manager)', 'pkgA', 'pkgB'}
     rhsm_info = _RHSMINFO_MSG
@@ -1206,25 +1288,186 @@ def mocked_consume_data():
 
 
 # TODO: come up with additional tests for the main function
-def test_perform_ok(monkeypatch):
+@pytest.mark.parametrize(
+    "distro,cert_path", [("rhel", _DEFAULT_CERT_PATH), ("centos", None)]
+)
+def test_perform_ok(monkeypatch, distro, cert_path):
     repoids = ['repoidX', 'repoidY']
     monkeypatch.setattr(userspacegen, '_InputData', mocked_consume_data)
-    monkeypatch.setattr(userspacegen, '_get_product_certificate_path', lambda: _DEFAULT_CERT_PATH)
+    monkeypatch.setattr(userspacegen, '_get_product_certificate_path', lambda: cert_path)
     monkeypatch.setattr(overlaygen, 'create_source_overlay', MockedMountingBase)
     monkeypatch.setattr(userspacegen, '_gather_target_repositories', lambda *x: repoids)
     monkeypatch.setattr(userspacegen, '_create_target_userspace', lambda *x: None)
-    monkeypatch.setattr(userspacegen.api, 'current_actor', CurrentActorMocked())
+    monkeypatch.setattr(userspacegen, 'setup_target_rhui_access_if_needed', lambda *x: None)
+    monkeypatch.setattr(userspacegen.api, 'current_actor', CurrentActorMocked(release_id=distro))
     monkeypatch.setattr(userspacegen.api, 'produce', produce_mocked())
     monkeypatch.setattr(repofileutils, 'get_repodirs', lambda: ['/etc/yum.repos.d'])
+
     userspacegen.perform()
+
     msg_target_repos = models.UsedTargetRepositories(
         repos=[models.UsedTargetRepository(repoid=repo) for repo in repoids])
+
     assert userspacegen.api.produce.called == 3
     assert isinstance(userspacegen.api.produce.model_instances[0], models.TMPTargetRepositoriesFacts)
     assert userspacegen.api.produce.model_instances[1] == msg_target_repos
     # this one is full of constants, so it's safe to check just the instance
     assert isinstance(userspacegen.api.produce.model_instances[2], models.TargetUserSpaceInfo)
 
+
+class _MockContext():
+
+    def __init__(self, base_dir, owned_by_rpms):
+        self.base_dir = base_dir
+        # list of files owned, no base_dir prefixed
+        self.owned_by_rpms = owned_by_rpms
+
+    def full_path(self, path):
+        return os.path.join(self.base_dir, os.path.abspath(path).lstrip('/'))
+
+    def call(self, cmd):
+        assert len(cmd) == 3 and cmd[0] == 'rpm' and cmd[1] == '-qf'
+        if cmd[2] in self.owned_by_rpms:
+            return {'exit_code': 0}
+        raise CalledProcessError("Command failed with exit code 1", cmd, 1)
+
+
+def test__get_files_owned_by_rpms(monkeypatch):
+
+    def listdir_mocked(path):
+        assert path == '/base/dir/some/path'
+        return ['fileA', 'fileB.txt', 'test.log', 'script.sh']
+
+    monkeypatch.setattr(os, 'listdir', listdir_mocked)
+    logger = logger_mocked()
+    monkeypatch.setattr(api, 'current_logger', logger)
+
+    search_dir = '/some/path'
+    # output doesn't include full paths
+    owned = ['fileA', 'script.sh']
+    # but the rpm -qf call happens with the full path
+    owned_fullpath = [os.path.join(search_dir, f) for f in owned]
+    context = _MockContext('/base/dir', owned_fullpath)
+
+    out = userspacegen._get_files_owned_by_rpms(context, '/some/path', recursive=False)
+    assert sorted(owned) == sorted(out)
+
+
+def test__get_files_owned_by_rpms_recursive(monkeypatch):
+    # this is not necessarily accurate, but close enough
+    fake_walk = [
+        ("/base/dir/etc/pki", ["ca-trust", "tls", "rpm-gpg"], []),
+        ("/base/dir/etc/pki/ca-trust", ["extracted", "source"], []),
+        ("/base/dir/etc/pki/ca-trust/extracted", ["openssl", "java"], []),
+        ("/base/dir/etc/pki/ca-trust/extracted/openssl", [], ["ca-bundle.trust.crt"]),
+        ("/base/dir/etc/pki/ca-trust/extracted/java", [], ["cacerts"]),
+
+        ("/base/dir/etc/pki/ca-trust/source", ["anchors", "directory-hash"], []),
+        ("/base/dir/etc/pki/ca-trust/source/anchors", [], ["my-ca.crt"]),
+        ("/base/dir/etc/pki/ca-trust/extracted/pem/directory-hash", [], [
+          "5931b5bc.0", "a94d09e5.0"
+        ]),
+        ("/base/dir/etc/pki/tls", ["certs", "private"], []),
+        ("/base/dir/etc/pki/tls/certs", [], ["server.crt", "ca-bundle.crt"]),
+        ("/base/dir/etc/pki/tls/private", [], ["server.key"]),
+        ("/base/dir/etc/pki/rpm-gpg", [], [
+            "RPM-GPG-KEY-1",
+            "RPM-GPG-KEY-2",
+        ]),
+    ]
+
+    def walk_mocked(path):
+        assert path == '/base/dir/etc/pki'
+        return fake_walk
+
+    monkeypatch.setattr(os, 'walk', walk_mocked)
+    logger = logger_mocked()
+    monkeypatch.setattr(api, 'current_logger', logger)
+
+    search_dir = '/etc/pki'
+    # output doesn't include full paths
+    owned = [
+        'tls/certs/ca-bundle.crt',
+        'ca-trust/extracted/openssl/ca-bundle.trust.crt',
+        'rpm-gpg/RPM-GPG-KEY-1',
+        'rpm-gpg/RPM-GPG-KEY-2',
+        'ca-trust/extracted/pem/directory-hash/a94d09e5.0',
+        'ca-trust/extracted/pem/directory-hash/a94d09e5.0',
+    ]
+    # the rpm -qf call happens with the full path
+    owned_fullpath = [os.path.join(search_dir, f) for f in owned]
+    context = _MockContext('/base/dir', owned_fullpath)
+
+    out = userspacegen._get_files_owned_by_rpms(context, search_dir, recursive=True)
+    # any directory-hash directory should be skipped
+    assert sorted(owned[0:4]) == sorted(out)
+
+    def has_dbgmsg(substr):
+        return any(substr in log for log in logger.dbgmsg)
+
+    # test a few
+    assert has_dbgmsg(
+        "SKIP files in the /base/dir/etc/pki/ca-trust/extracted/pem/directory-hash directory:"
+        " Not important for the IPU.",
+    )
+    assert has_dbgmsg('SKIP the tls/certs/server.crt file: not owned by any rpm')
+    assert has_dbgmsg('Found the file owned by an rpm: rpm-gpg/RPM-GPG-KEY-2.')
+
+
+def test_writing_stream_varfile(monkeypatch):
+
+    monkeypatch.setattr(userspacegen.api, 'current_actor', CurrentActorMocked())
+    monkeypatch.setattr(userspacegen, 'get_target_major_version', lambda: '10')
+
+    with tempfile.NamedTemporaryFile(mode='w+') as tmpf:
+        tmpf.write('incorrect-stream-value\n')
+        tmpf.flush()
+        userspacegen.adjust_dnf_stream_variable(MockedMountingBase, tmpf.name)
+        tmpf.seek(0)
+        content = tmpf.read()
+
+    assert content == '10-stream\n'
+
+
+def test_failing_stream_varfile_write(monkeypatch):
+    monkeypatch.setattr(userspacegen.api, 'current_actor', CurrentActorMocked())
+    monkeypatch.setattr(userspacegen, 'get_target_major_version', lambda: '10')
+    with pytest.raises(StopActorExecutionError) as err:
+        userspacegen.adjust_dnf_stream_variable(MockedMountingBase, '/path/not/exists')
+
+    assert 'Failed to adjust dnf variable' in str(err.value)
+
+
+@pytest.mark.parametrize('src_distro', ('rhel', 'centos'))
+@pytest.mark.parametrize("dst_distro,should_adjust", [('rhel', False), ('centos', True)])
+def test_if_adjust_dnf_stream_variable_only_for_centos(
+    monkeypatch, src_distro, dst_distro, should_adjust
+):
+
+    def do_nothing(*args, **kwargs):
+        pass
+
+    def mock_adjust_stream_variable(context, varfile='/etc/dnf/vars/stream'):
+        assert varfile == '/etc/dnf/vars/stream'
+        nonlocal adjust_called
+        adjust_called = True
+
+    monkeypatch.setattr(
+        userspacegen.api,
+        "current_actor",
+        CurrentActorMocked(src_distro=src_distro, dst_distro=dst_distro),
+    )
+    monkeypatch.setattr(userspacegen, 'get_target_major_version', lambda: '10')
+    monkeypatch.setattr(rhsm, 'set_container_mode', do_nothing)
+    monkeypatch.setattr(rhsm, 'switch_certificate', do_nothing)
+    monkeypatch.setattr(userspacegen, '_install_custom_repofiles', do_nothing)
+    monkeypatch.setattr(userspacegen, 'adjust_dnf_stream_variable', mock_adjust_stream_variable)
+    monkeypatch.setattr(userspacegen, 'gather_target_repositories', do_nothing)
+
+    adjust_called = False
+
+    userspacegen._gather_target_repositories(MockedMountingBase, testInData, None)
+    assert adjust_called == should_adjust
 
 class _RecordingContext(object):
     """Minimal context stub that records the commands passed to call()."""
@@ -1276,3 +1519,85 @@ def test_prepare_target_userspace_allows_erasing_conflicts(monkeypatch):
     localinstall_cmds = [c for c in context.commands if 'localinstall' in c]
     assert localinstall_cmds, 'expected a dnf localinstall of cloudlinux-release'
     assert '--allowerasing' in localinstall_cmds[0]
+
+
+def test_cloudlinux_release_urls_prefer_migrate_then_canonical():
+    """The migrate copy is tried first, the canonical release RPM as a fallback.
+
+    repo.cloudlinux.com publishes a stable "current" release RPM per target under
+    /cloudlinux/migrate/release-files/, and that is what the upgrade has always
+    installed. It does not exist for 10 - the directory 404s, while 8 and 9 are
+    there - so the canonical /cloudlinux/<major>/cloudlinux-release-latest-<major>.rpm
+    is tried after it rather than the upgrade dying on a missing file.
+    """
+    urls = userspacegen._get_cloudlinux_release_urls('10')
+
+    assert len(urls) == 2
+    assert urls[0] == (
+        'https://repo.cloudlinux.com/cloudlinux/migrate/release-files'
+        '/cloudlinux/10/x86_64/cloudlinux10-release-current.x86_64.rpm'
+    )
+    assert urls[1] == (
+        'https://repo.cloudlinux.com/cloudlinux/10/cloudlinux-release-latest-10.rpm'
+    )
+
+
+def test_cloudlinux_release_urls_unchanged_for_existing_targets():
+    """8 and 9 keep asking for the migrate copy first, exactly as before."""
+    for major in ('8', '9'):
+        first = userspacegen._get_cloudlinux_release_urls(major)[0]
+        assert 'migrate/release-files' in first
+        assert 'cloudlinux{0}-release-current'.format(major) in first
+
+
+def test_localinstall_resolves_system_release_from_target_repos_on_10(monkeypatch):
+    """CloudLinux 10 needs a separate provider of system-release(releasever).
+
+    Up to 9 cloudlinux-release *is* the system release. cloudlinux-release-10
+    instead carries "Requires: system-release(releasever) = 10", because
+    CloudLinux 10 is a subsystem on top of AlmaLinux and almalinux-release owns
+    the system identity. A CloudLinux 9 host provides only releasever 9, and the
+    CloudLinux 10 channel does not carry almalinux-release either - it holds the
+    CloudLinux additions only - so dnf fails with "nothing provides
+    system-release(releasever) = 10" unless the transaction can reach the target
+    repositories, at the target releasever.
+    """
+    monkeypatch.setattr(userspacegen.api, 'current_logger', logger_mocked())
+    monkeypatch.setattr(userspacegen.api, 'current_actor', CurrentActorMocked(dst_ver='10.2'))
+    context = _RecordingContext()
+
+    userspacegen._install_cloudlinux_release(context, '10', ['almalinux10-baseos', 'cloudlinux10-channel'])
+
+    localinstall_cmds = [c for c in context.commands if 'localinstall' in c]
+    assert len(localinstall_cmds) == 1
+    cmd = localinstall_cmds[0]
+    assert '--releasever' in cmd
+    assert cmd[cmd.index('--releasever') + 1] == '10.2'
+    assert cmd.count('--enablerepo') == 2
+    assert 'almalinux10-baseos' in cmd
+    assert 'cloudlinux10-channel' in cmd
+    # The source repofiles are still in this overlay and some interpolate
+    # $releasever into their baseurl (cl-mysql resolves to .../other/cl$releasever/...),
+    # so the override has to exclude them or dnf dies downloading their metadata.
+    assert '--disablerepo' in cmd
+    assert cmd[cmd.index('--disablerepo') + 1] == '*'
+
+
+def test_localinstall_unchanged_for_targets_providing_their_own_system_release(monkeypatch):
+    """8 and 9 must keep the exact command they had - their release provides it.
+
+    Enabling the target repositories here would let the throwaway overlay pull
+    target content it never pulled before, so it is done only where the
+    dependency cannot be satisfied any other way.
+    """
+    monkeypatch.setattr(userspacegen.api, 'current_logger', logger_mocked())
+    monkeypatch.setattr(userspacegen.api, 'current_actor', CurrentActorMocked(dst_ver='9.4'))
+
+    for major in ('8', '9'):
+        context = _RecordingContext()
+        userspacegen._install_cloudlinux_release(context, major, ['almalinux{0}-baseos'.format(major)])
+        cmd = [c for c in context.commands if 'localinstall' in c][0]
+        assert '--releasever' not in cmd
+        assert '--enablerepo' not in cmd
+        assert '--disablerepo' not in cmd
+        assert cmd[-1] == userspacegen._get_cloudlinux_release_urls(major)[0]

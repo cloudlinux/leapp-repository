@@ -17,13 +17,22 @@ git ls-tree -r --name-only AlmaLinux/almalinux-ng       -- repos/system_upgrade/
 ```
 
 RHEL 7 is past end of maintenance, so upstream retired the path. CloudLinux still
-supports CL7 to CL8 upgrades commercially, so we keep the entire repo. This is a
-permanent, deliberate divergence, and it is one of the largest we carry.
+supports CL7 to CL8 upgrades commercially, and from 0.24.0 that support lives on its
+own branch, `cloudlinux-el7toel8`, cut at `f0a12da4` (0.20.0-13, 2026-10-02) in this
+repo and at `e6477677` (0.3-9) in leapp-data. `cloudlinux` builds for CL8 and CL9
+only.
+
+Carrying CL7 on `cloudlinux` past the 0.24.0 merge meant keeping shared code
+loadable by python2.7 and the leapp CLI by leapp-framework 6.0, both of which
+upstream had stopped doing; each merge from them would have broken it again.
+`repos/system_upgrade/el7toel8/` is still on `cloudlinux`, unbuilt, until a cleanup
+removes it together with the spec's el7 branches.
 
 ## What it closes
 
 Any fix that only applies to the EL7 to EL8 path is unupstreamable by
-construction - there is no branch to target. This is not a judgement about
+construction - there is no upstream branch to target. It goes to
+`cloudlinux-el7toel8` instead. This is not a judgement about
 quality. Two examples found in the 2026-07-31 sweep, both of which would
 otherwise have been worth sending:
 
@@ -49,9 +58,9 @@ half is closed. CLOS-2132 is genuinely el7-specific (it turns on a 9.2-versus-9.
 packaging difference), but that is a conclusion to reach per change, not a
 default.
 
-## Consequence for rebases
+## Consequence for merges
 
-A rebase onto any current upstream ref will present
-`repos/system_upgrade/el7toel8/` as deleted upstream. Keep ours. Expect this to
-be the loudest part of the next rebase and to need no thought beyond "we still
-ship CL7".
+A merge from any current upstream ref presents `repos/system_upgrade/el7toel8/` as
+deleted upstream. On `cloudlinux` that deletion can now be taken: nothing builds it.
+Nothing merged from upstream needs to stay python2.7-parseable or load on
+leapp-framework 6.0 either - that is what moving CL7 to its own branch bought.

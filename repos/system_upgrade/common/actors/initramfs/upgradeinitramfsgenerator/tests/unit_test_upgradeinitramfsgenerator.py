@@ -82,7 +82,7 @@ def gen_UDM_list(data):
     return [UpgradeDracutModule(name=i[0], module_path=i[1]) for i in data]
 
 
-class MockedContext(object):
+class MockedContext:
     def __init__(self):
         self.called_copy_from = []
         self.called_copytree_from = []
@@ -166,16 +166,15 @@ def test_copy_boot_files(monkeypatch, arch):
                         'create_upgrade_hmac_from_target_hmac',
                         create_upgrade_hmac_from_target_hmac_mock)
 
-    upgradeinitramfsgenerator.copy_boot_files(context)
+    actual_boot_content = upgradeinitramfsgenerator.copy_boot_files(context)
     assert len(context.called_copy_from) == 2
     assert (os.path.join('/artifacts', kernel), bootc.kernel_path) in context.called_copy_from
     assert (os.path.join('/artifacts', initram), bootc.initram_path) in context.called_copy_from
 
-    assert upgradeinitramfsgenerator.api.produce.called == 1
-    assert upgradeinitramfsgenerator.api.produce.model_instances[0] == bootc
+    assert actual_boot_content == bootc
 
 
-class MockedCopyArgs(object):
+class MockedCopyArgs:
     def __init__(self):
         self.args = None
 
@@ -251,14 +250,14 @@ def test_prepare_userspace_for_initram(monkeypatch, adjust_cwd, input_msgs, pkgs
     assert _sort_files(upgradeinitramfsgenerator._copy_files.args[1]) == _files
 
 
-class MockedGetFspace(object):
+class MockedGetFspace:
     def __init__(self, space):
         self.space = space
 
     def __call__(self, dummy_path, convert_to_mibs=False):
         if not convert_to_mibs:
             return self.space
-        return int(self.space / 1024 / 1024)  # noqa: W1619; pylint: disable=old-division
+        return int(self.space / 1024 / 1024)
 
 
 @pytest.mark.parametrize('input_msgs,dracut_modules,kernel_modules', [
@@ -354,6 +353,7 @@ def test_copy_modules_fail(monkeypatch, kind):
 
     module_class = None
     copy_fn = None
+    dst_path = None
     if kind == 'dracut':
         module_class = DracutModule
         copy_fn = upgradeinitramfsgenerator.copy_dracut_modules

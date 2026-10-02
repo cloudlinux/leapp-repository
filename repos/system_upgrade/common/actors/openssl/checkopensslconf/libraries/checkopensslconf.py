@@ -5,8 +5,11 @@ from leapp.libraries.stdlib import api
 from leapp.models import DistributionSignedRPM, TrackedFilesInfoSource
 
 DEFAULT_OPENSSL_CONF = '/etc/pki/tls/openssl.cnf'
-URL_8_CRYPTOPOLICIES = 'https://red.ht/rhel-8-system-wide-crypto-policies'
-URL_9_CRYPTOPOLICIES = 'https://red.ht/rhel-9-system-wide-crypto-policies'
+URL_CRYPTOPOLICIES = {
+    '8': 'https://red.ht/rhel-8-system-wide-crypto-policies',
+    '9': 'https://red.ht/rhel-9-system-wide-crypto-policies',
+    '10': 'https://red.ht/rhel-10-system-wide-crypto-policies',  # TODO actually make the url
+}
 
 
 def check_ibmca():
@@ -17,29 +20,27 @@ def check_ibmca():
         return
     # In RHEL 9 has been introduced new technology: openssl providers. The engine
     # is deprecated, so keep proper teminology to not confuse users.
-    dst_tech = 'engine' if version.get_target_major_version() == '8' else 'providers'
     summary = (
         'The presence of openssl-ibmca package suggests that the system may be configured'
         ' to use the IBMCA OpenSSL engine.'
         ' Due to major changes in OpenSSL and libica between RHEL {source} and RHEL {target} it is not'
         ' possible to migrate OpenSSL configuration files automatically. Therefore,'
-        ' it is necessary to enable IBMCA {tech} in the OpenSSL config file manually'
+        ' it is necessary to enable IBMCA providers in the OpenSSL config file manually'
         ' after the system upgrade.'
         .format(
             source=version.get_source_major_version(),
             target=version.get_target_major_version(),
-            tech=dst_tech
         )
     )
 
     hint = (
-        'Configure the IBMCA {tech} manually after the upgrade.'
+        'Configure the IBMCA providers manually after the upgrade.'
         ' Please, be aware that it is not recommended to configure the system default'
         ' {fpath}. Instead, it is recommended to configure a copy of'
         ' that file and use this copy only for particular applications that are supposed'
-        ' to utilize the IBMCA {tech}. The location of the OpenSSL configuration file'
+        ' to utilize the IBMCA providers. The location of the OpenSSL configuration file'
         ' can be specified using the OPENSSL_CONF environment variable.'
-        .format(tech=dst_tech, fpath=DEFAULT_OPENSSL_CONF)
+        .format(fpath=DEFAULT_OPENSSL_CONF)
     )
 
     reporting.create_report([
@@ -70,7 +71,7 @@ def check_default_openssl():
     if not _is_openssl_modified():
         return
 
-    crypto_url = URL_8_CRYPTOPOLICIES if version.get_target_major_version == '8' else URL_9_CRYPTOPOLICIES
+    crypto_url = URL_CRYPTOPOLICIES[version.get_target_major_version()]
 
     # TODO(pstodulk): Needs in future some rewording, as OpenSSL engines are
     # deprecated since "RHEL 8" and people should use OpenSSL providers instead.

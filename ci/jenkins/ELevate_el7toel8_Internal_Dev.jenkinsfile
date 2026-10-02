@@ -10,7 +10,7 @@ pipeline {
         parallelsAlwaysFailFast()
     }
     parameters {
-        choice(name: 'TARGET_DISTRO_FILTER', choices: ['almalinux-8', 'centos-stream-8', 'eurolinux-8', 'oraclelinux-8', 'rocky-8', 'all'], description: 'Select a target distro or all for ELevation')
+        choice(name: 'TARGET_DISTRO_FILTER', choices: ['almalinux-8', 'centos-stream-8', 'oraclelinux-8', 'rocky-8', 'all'], description: 'Select a target distro or all for ELevation')
         choice(name: 'CONF_FILTER', choices: ['minimal', 'docker-ce'], description: 'Select a configuration')
         string(name: 'LEAPP_SRC_GIT_USER', defaultValue: 'AlmaLinux', description: 'Input name of Git user of LEAPP source', trim: true)
         string(name: 'LEAPP_SRC_GIT_BRANCH', defaultValue: 'almalinux', description: 'Input name of Git branch of LEAPP source', trim: true)
@@ -76,7 +76,7 @@ pipeline {
                 axes {
                     axis {
                         name 'TARGET_DISTRO'
-                        values 'almalinux-8', 'centos-stream-8', 'eurolinux-8', 'oraclelinux-8', 'rocky-8'
+                        values 'almalinux-8', 'centos-stream-8', 'oraclelinux-8', 'rocky-8'
                     }
                 }
                 stages {
@@ -218,15 +218,6 @@ def targetDistroSpec(distro) {
         case 'centos-stream-8':
             vm = 'centosstream_8'
             ldata = 'centos'
-
-            spec = [
-                vmName: vm,
-                leappData: ldata
-            ]
-            break
-        case 'eurolinux-8':
-            vm = 'eurolinux_8'
-            ldata = 'eurolinux'
 
             spec = [
                 vmName: vm,

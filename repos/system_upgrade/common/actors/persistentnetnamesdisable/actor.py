@@ -2,6 +2,7 @@ import re
 
 from leapp import reporting
 from leapp.actors import Actor
+from leapp.libraries.common.config.version import get_target_major_version
 from leapp.models import KernelCmdlineArg, PersistentNetNamesFacts
 from leapp.reporting import create_report, Report
 from leapp.tags import FactsPhaseTag, IPUWorkflowTag
@@ -17,7 +18,8 @@ class PersistentNetNamesDisable(Actor):
     produces = (KernelCmdlineArg, Report)
     tags = (FactsPhaseTag, IPUWorkflowTag)
 
-    def ethX_count(self, interfaces):
+    @staticmethod
+    def ethX_count(interfaces):
         ethX = re.compile('eth[0-9]+')
         count = 0
 
@@ -26,7 +28,8 @@ class PersistentNetNamesDisable(Actor):
                 count = count + 1
         return count
 
-    def single_eth0(self, interfaces):
+    @staticmethod
+    def single_eth0(interfaces):
         return len(interfaces) == 1 and interfaces[0].name == 'eth0'
 
     def disable_persistent_naming(self):
@@ -39,15 +42,14 @@ class PersistentNetNamesDisable(Actor):
         if self.single_eth0(interfaces):
             self.disable_persistent_naming()
         elif len(interfaces) > 1 and self.ethX_count(interfaces) > 0:
-            create_report([
+            report_entries = [
                 reporting.Title('Unsupported network configuration'),
                 reporting.Summary(
                     'Detected multiple physical network interfaces where one or more use kernel naming (e.g. eth0). '
                     'Upgrade process can not continue because stability of names can not be guaranteed. '
-                    'Please read the article at https://access.redhat.com/solutions/4067471 for more information.'
                 ),
                 reporting.ExternalLink(
-                    title='How to perform an in-place upgrade to RHEL 8 when using kernel NIC names on RHEL 7',
+                    title='How to Perform an In-Place Upgrade when Using Kernel-Assigned NIC Names',
                     url='https://access.redhat.com/solutions/4067471'
                 ),
                 reporting.Remediation(
@@ -56,4 +58,15 @@ class PersistentNetNamesDisable(Actor):
                 reporting.Severity(reporting.Severity.HIGH),
                 reporting.Groups([reporting.Groups.NETWORK]),
                 reporting.Groups([reporting.Groups.INHIBITOR])
-            ])
+            ]
+
+            if get_target_major_version() == '9':
+                report_entries.append(
+                    reporting.ExternalLink(
+                        title='RHEL 8 to RHEL 9: inplace upgrade fails at '
+                              '"Network configuration for unsupported device types detected"',
+                        url='https://access.redhat.com/solutions/7009239'
+                    )
+                )
+
+            create_report(report_entries)

@@ -7,7 +7,8 @@ from leapp.models import SapHanaInfo
 # Supported architectures for upgrades with SAP HANA to RHEL 'X'
 SAP_HANA_SUPPORTER_ARCHS = {
     '8': [architecture.ARCH_X86_64],
-    '9': [architecture.ARCH_X86_64, architecture.ARCH_PPC64LE]
+    '9': [architecture.ARCH_X86_64, architecture.ARCH_PPC64LE],
+    '10': [architecture.ARCH_X86_64, architecture.ARCH_PPC64LE],
 }
 
 SAP_HANA_MINIMAL_MAJOR_VERSION = 2
@@ -23,7 +24,7 @@ SAP_HANA_RHEL90_MINIMAL_VERSION_STRING = 'HANA 2.0 SPS05 rev 59.04 or later, or 
 
 def _report_skip_check():
     summary = (
-        'For the target RHEL releases >=8.8 and >=9.2 '
+        'For the target RHEL releases >=8.8, >=9.2 and >=10.0 '
         'the leapp utility does not check RHEL and SAP HANA 2.0 '
         'versions compatibility. Please ensure your SAP HANA 2.0 '
         'is supported on the target RHEL release and '
@@ -221,6 +222,7 @@ def platform_check():
     Supported architectures:
     - IPU 7 -> 8: x86_64
     - IPU 8 -> 9: x86_64, ppc64le
+    - IPU 9 -> 10: x86_64, ppc64le
 
     In case of the upgrade to a RHEL X version that is not supported for the
     IPU yet, return False and do not report anything, as the upgrade to
@@ -239,11 +241,14 @@ def platform_check():
 
     EXTERNAL_LINK = {
         '8': reporting.ExternalLink(
-            url='https://access.redhat.com/solutions/5154031',
-            title='How to in-place upgrade SAP environments from RHEL 7 to RHEL 8'),
+            url='https://red.ht/how-to-in-place-upgrade-sap-environments-from-rhel-7-to-rhel-8',
+            title='Upgrading SAP environments from RHEL 7 to RHEL 8'),
         '9': reporting.ExternalLink(
             url='https://red.ht/how-to-in-place-upgrade-sap-environments-from-rhel-8-to-rhel-9',
-            title='How to in-place upgrade SAP environments from RHEL 8 to RHEL 9')
+            title='Upgrading SAP environments from RHEL 8 to RHEL 9'),
+        '10': reporting.ExternalLink(
+            url='https://red.ht/how-to-in-place-upgrade-sap-environments-from-rhel-9-to-rhel-10',
+            title='Upgrading SAP environments from RHEL 9 to RHEL 10'),
     }
 
     reporting.create_report([

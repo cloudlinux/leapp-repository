@@ -9,7 +9,6 @@ import six
 
 from leapp.exceptions import StopActorExecutionError
 from leapp.libraries.common import dnfconfig, guards, mounting, overlaygen, rhsm, utils
-from leapp.libraries.common.config import get_env
 from leapp.libraries.common.config.version import get_target_major_version, get_target_version
 from leapp.libraries.common.gpg import is_nogpgcheck_set
 from leapp.libraries.stdlib import api, CalledProcessError, config
@@ -21,8 +20,8 @@ _DEDICATED_URL = 'https://access.redhat.com/solutions/7011704'
 
 class _DnfPluginPathStr(str):
     _PATHS = {
-        "8": os.path.join('/lib/python3.6/site-packages/dnf-plugins', DNF_PLUGIN_NAME),
         "9": os.path.join('/lib/python3.9/site-packages/dnf-plugins', DNF_PLUGIN_NAME),
+        "10": os.path.join('/lib/python3.12/site-packages/dnf-plugins', DNF_PLUGIN_NAME),
     }
 
     def __init__(self):  # noqa: W0231; pylint: disable=super-init-not-called
@@ -88,12 +87,12 @@ def build_plugin_data(target_repoids, debug, test, tasks, on_aws):
     # get list of repo IDs of target repositories that should be used for upgrade
     data = {
         'pkgs_info': {
-            'local_rpms': [os.path.join('/installroot', pkg.lstrip('/')) for pkg in tasks.local_rpms],
-            'to_install': tasks.to_install,
-            'to_remove': tasks.to_remove,
-            'to_upgrade': tasks.to_upgrade,
-            'to_reinstall': tasks.to_reinstall,
-            'modules_to_enable': ['{}:{}'.format(m.name, m.stream) for m in tasks.modules_to_enable],
+            'local_rpms': sorted(os.path.join('/installroot', pkg.lstrip('/')) for pkg in tasks.local_rpms),
+            'to_install': sorted(tasks.to_install),
+            'to_remove': sorted(tasks.to_remove),
+            'to_upgrade': sorted(tasks.to_upgrade),
+            'to_reinstall': sorted(tasks.to_reinstall),
+            'modules_to_enable': sorted(['{}:{}'.format(m.name, m.stream) for m in tasks.modules_to_enable]),
         },
         'dnf_conf': {
             'allow_erasing': True,
@@ -170,16 +169,17 @@ def _handle_transaction_err_msg_old(stage, xfs_info, err):
     raise StopActorExecutionError(message=message, details=details)
 
 
-def _handle_transaction_err_msg(stage, xfs_info, err, is_container=False):
-    # ignore the fallback when the error is related to the container issue
-    # e.g. installation of packages inside the container; so it's unrelated
-    # to the upgrade transactions.
-    if get_env('LEAPP_OVL_LEGACY', '0') == '1' and not is_container:
-        _handle_transaction_err_msg_old(stage, xfs_info, err)
-        return  # not needed actually as the above function raises error, but for visibility
+def _handle_transaction_err_msg(err, is_container=False):
+    if six.PY2:
+        # On CL7 the framework runs under python2.7, where dnf hands back unicode.
+        # A single non-ASCII byte in the output then raises UnicodeEncodeError the
+        # moment the message is formatted into a report, hiding the real failure.
+        err.stdout = err.stdout.encode('utf-8', 'xmlcharrefreplace')
+        err.stderr = err.stderr.encode('utf-8', 'xmlcharrefreplace')
+
     NO_SPACE_STR = 'more space needed on the'
-    message = 'DNF execution failed with non zero exit code.'
     if NO_SPACE_STR not in err.stderr:
+        message = 'DNF execution failed with non zero exit code.'
         # if there was a problem reaching repos and proxy is configured in DNF/YUM configs, the
         # proxy is likely the problem.
         # NOTE(mmatuska): We can't consistently detect there was a problem reaching some repos,
@@ -274,26 +274,24 @@ def _transaction(context, stage, target_repoids, tasks, plugin_info, xfs_info,
             # allow handling new RHEL 9 syscalls by systemd-nspawn
             env = {'SYSTEMD_SECCOMP': '0'}
 
-            # We need to reset modules twice, once before we check, and the second time before we actually perform
-            # the upgrade. Not more often as the modules will be reset already.
-            if stage in ('check', 'upgrade') and tasks.modules_to_reset:
-                # We shall only reset modules that are not going to be enabled
-                # This will make sure it is so
-                modules_to_reset = {(module.name, module.stream) for module in tasks.modules_to_reset}
-                modules_to_enable = {(module.name, module.stream) for module in tasks.modules_to_enable}
-                module_reset_list = [module[0] for module in modules_to_reset - modules_to_enable]
-                # Perform module reset
-                cmd = ['/usr/bin/dnf', 'module', 'reset', '--enabled', ] + module_reset_list
-                cmd += ['--disablerepo', '*', '-y', '--installroot', '/installroot']
-                try:
-                    context.call(
-                        cmd=cmd_prefix + cmd + common_params,
-                        callback_raw=utils.logging_handler,
-                        env=env
-                    )
-                except (CalledProcessError, OSError):
-                    api.current_logger().debug('Failed to reset modules via dnf with an error. Ignoring.',
-                                               exc_info=True)
+        if tasks.modules_to_reset:
+            # We shall only reset modules that are not going to be enabled
+            # This will make sure it is so
+            modules_to_reset = {(module.name, module.stream) for module in tasks.modules_to_reset}
+            modules_to_enable = {(module.name, module.stream) for module in tasks.modules_to_enable}
+            module_reset_list = [module[0] for module in modules_to_reset - modules_to_enable]
+            # Perform module reset
+            cmd = ['/usr/bin/dnf', 'module', 'reset', '--enabled', ] + module_reset_list
+            cmd += ['--disablerepo', '*', '-y', '--installroot', '/installroot']
+            try:
+                context.call(
+                    cmd=cmd_prefix + cmd + common_params,
+                    callback_raw=utils.logging_handler,
+                    env=env
+                )
+            except (CalledProcessError, OSError):
+                api.current_logger().debug('Failed to reset modules via dnf with an error. Ignoring.',
+                                           exc_info=True)
 
         cmd = [
             '/usr/bin/dnf',
@@ -313,18 +311,8 @@ def _transaction(context, stage, target_repoids, tasks, plugin_info, xfs_info,
                 message='Failed to execute dnf. Reason: {}'.format(str(e))
             )
         except CalledProcessError as e:
-            err_stdout = e.stdout
-            err_stderr = e.stderr
-            if six.PY2:
-                err_stdout = e.stdout.encode('utf-8', 'xmlcharrefreplace')
-                err_stderr = e.stderr.encode('utf-8', 'xmlcharrefreplace')
-
-            api.current_logger().error('DNF execution failed: ')
-            raise StopActorExecutionError(
-                message='DNF execution failed with non zero exit code.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}'.format(
-                    stdout=err_stdout, stderr=err_stderr
-                )
-            )
+            api.current_logger().error('Cannot calculate, check, test, or perform the upgrade transaction.')
+            _handle_transaction_err_msg(e, is_container=False)
         finally:
             if stage == 'check':
                 backup_debug_data(context=context)
@@ -370,7 +358,7 @@ def install_initramdisk_requirements(packages, target_userspace_info, used_repos
     mount_binds = ['/:/installroot']
     with _prepare_transaction(used_repos=used_repos, target_userspace_info=target_userspace_info,
                               binds=mount_binds) as (context, target_repoids, _unused):
-        if get_target_major_version() == '9':
+        if int(get_target_major_version()) >= 9:
             _rebuild_rpm_db(context)
         repos_opt = [['--enablerepo', repo] for repo in target_repoids]
         repos_opt = list(itertools.chain(*repos_opt))
@@ -400,7 +388,7 @@ def install_initramdisk_requirements(packages, target_userspace_info, used_repos
             api.current_logger().error(
                 'Cannot install packages in the target container required to build the upgrade initramfs.'
             )
-            _handle_transaction_err_msg('', None, e, is_container=True)
+            _handle_transaction_err_msg(e, is_container=True)
 
 
 def perform_transaction_install(target_userspace_info, storage_info, used_repos, tasks, plugin_info, xfs_info):
@@ -418,13 +406,9 @@ def perform_transaction_install(target_userspace_info, storage_info, used_repos,
         '/run/udev:/installroot/run/udev',
     ]
 
-    if get_target_major_version() == '8':
-        bind_mounts.append('/sys:/installroot/sys')
-    else:
-        # the target major version is RHEL 9+
-        # we are bindmounting host's "/sys" to the intermediate "/hostsys"
-        # in the upgrade initramdisk to avoid cgroups tree layout clash
-        bind_mounts.append('/hostsys:/installroot/sys')
+    # we are bindmounting host's "/sys" to the intermediate "/hostsys"
+    # in the upgrade initramdisk to avoid cgroups tree layout clash
+    bind_mounts.append('/hostsys:/installroot/sys')
 
     already_mounted = {entry.split(':')[0] for entry in bind_mounts}
     for entry in storage_info.fstab:
@@ -459,7 +443,7 @@ def perform_transaction_install(target_userspace_info, storage_info, used_repos,
         # set like that, however seatbelt is a good thing.
         dnfconfig.exclude_leapp_rpms(context, disable_plugins)
 
-        if get_target_major_version() == '9':
+        if int(get_target_major_version()) >= 9:
             _rebuild_rpm_db(context, root='/installroot')
         _transaction(
             context=context, stage='upgrade', target_repoids=target_repoids, plugin_info=plugin_info,
@@ -474,6 +458,10 @@ def perform_transaction_install(target_userspace_info, storage_info, used_repos,
 
 @contextlib.contextmanager
 def _prepare_perform(used_repos, target_userspace_info, xfs_info, storage_info, target_iso=None):
+    # noqa: W0135; pylint: disable=bad-option-value,contextmanager-generator-missing-cleanup
+    # NOTE(pstodulk): the pylint check is not valid in this case - finally is covered
+    # implicitly
+    # noqa: W0135
     reserve_space = overlaygen.get_recommended_leapp_free_space(target_userspace_info.path)
     with _prepare_transaction(used_repos=used_repos,
                               target_userspace_info=target_userspace_info

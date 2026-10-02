@@ -1,0 +1,78 @@
+# Deprecated functionality
+Deprecated functionality is listed under the first version that the functionality
+is deprecated in. Note that functionality may be removed in later versions
+but will not be listed again.
+The dates in brackets correspond to the end of the deprecation protection period,
+after which the related functionality can be removed at any time.
+
+```{note}
+The list covers only the deprecations made in leapp-repository. For the functionality deprecated in the leapp
+framework, see {ref}`deprecation:list of the deprecated functionality in leapp`.
+```
+
+Only the versions in which a deprecation has been made are listed.
+
+## Next release <span style="font-size:0.5em; font-weight:normal">(till TODO date)</span>
+- Note: nothing new deprecated yet
+
+## v0.24.0 <span style="font-size:0.5em; font-weight:normal">(till September 2026)</span>
+- Shared libraries
+  - **`leapp.libraries.common.config.get_distro_id()`** - The function has been replaced by variants for source and target distros - `leapp.libraries.common.config.get_source_distro_id()` and `leapp.libraries.common.config.get_target_distro_id()`.
+  - Following UEFI related symbols have been moved from `leapp.libraries.common.grub` into `leapp.libraries.common.efi`:
+    - **`EFI_MOUNTPOINT`**
+    - **`EFIBootInfo`** - raises `leapp.libraries.common.efi.EFIError` instead of `leapp.exceptions.StopActorExecutionError`
+    - **`EFIBootLoaderEntry`**
+    - **`canonical_path_to_efi_format()`**
+    - **`get_efi_device()`** - raises `leapp.libraries.common.efi.EFIError` instead of `leapp.exceptions.StopActorExecutionError`
+    - **`get_efi_partition()`** - raises `leapp.libraries.common.efi.EFIError` instead of `leapp.exceptions.StopActorExecutionError`
+    - **`is_efi()`**
+  - Functions related to manipulation of devices and partitions were moved from `leapp.libraries.common.grub` into `leapp.libraries.common.partitions`:
+    - **`blk_dev_from_partition()`**
+    - **`get_device_number()`** - replaced by **`get_partition_number()`**
+- Models
+  - **`RHELTargetRepository`** - Replaced by `DistroTargetRepository`
+
+## v0.23.0 <span style="font-size:0.5em; font-weight:normal">(till March 2026)</span>
+
+- Shared libraries
+  - **`leapp.libraries.common.config.version.SUPPORTED_VERSIONS`** - The `SUPPORTED_VERSIONS` dict has been deprecated as it is problematic with the new design. Use `leapp.libraries.common.config.version.is_supported_version()` or `IPUConfig.supported_upgrade_paths` instead.
+  - **`leapp.libraries.common.config.version.is_rhel_alt()`** - The function can return only `False` nowadays as RHEL-ALT 7 is EOL for years and future version of leapp-repository will not support RHEL 7 anymore.
+- Models
+  - **`InstalledUnsignedRPM`** - Replaced by the distribution agnostic `ThirdPartyRPM`.
+
+## v0.20.0 <span style="font-size:0.5em; font-weight:normal">(till September 2024)</span>
+- Models
+  - **`InstalledRedHatSignedRPM`** - Replaced by the distribution agnostic `DistributionSignedRPM`.
+
+## v0.19.0 <span style="font-size:0.5em; font-weight:normal">(till March 2024)</span>
+- Models
+  - **`InstalledTargetKernelVersion`** - Deprecated as the new solution has been designed to be able to handle new changes in RHEL 9.3+ system. Use the `InstalledTargetKernelInfo` message instead.
+  - **GrubInfo.orig_device_name** - The `GrubInfo` message is still valid, but the `orig_device_name` field has been deprecated as multiple devices can exist on a system. Use `GrubInfo.orig_devices` instead.
+- Shared libraries
+  - **`leapp.libraries.common.config.version.is_rhel_realtime()`** - The function has been deprecated as the information cannot be easily determined based on the information inside `IPUConfig`. Use data in the `KernelInfo` message instead, the field `type`.
+  - **leapp.libraries.common.grub.get_grub_device()** - The function has been deprecated as multiple grub devices can exists on a system. Use the `leapp.libraries.common.grub.get_grub_devices()` function instead.
+
+## v0.16.0 <span style="font-size:0.5em; font-weight:normal">(till September 2022)</span>
+- Shared libraries
+    - **`leapp.libraries.common.utils.apply_yum_workaround`** - The `apply_yum_workaround` function has been deprecated, use `DNFWorkaround` message as used in the successive `RegisterYumAdjustment` actor.
+
+## v0.15.0 <span style="font-size:0.5em; font-weight:normal">(till April 2022)</span>
+- Models
+  - **`RequiredTargetUserspacePackages`** - Deprecated because a new solution has been designed. Use the `TargetUserspacePreupgradeTasks` instead (see the `install_rpms` field).
+  - **`RequiredUpgradeInitramPackages`** - Deprecated because the new solution around the upgrade initramfs has been designed. Use the `TargetUserspaceUpgradeTasks` instead (see the `install_rpms` field).
+  - **`UpgradeDracutModule`** - Replaced by `UpgradeInitramfsTasks` (see the `include_dracut_modules` field).
+  - **`InitrdIncludes`** - Deprecated because the new solution around the target initramfs (read: initramfs created for the upgraded system) has been designed. Use the `TargetInitramfsTasks` instead (see the `include_files` field).
+
+## v0.12.0  <span style="font-size:0.5em; font-weight:normal">(till April  2021)</span>
+- Models
+   - **`GrubDevice`** - Deprecated because the current implementation is not reliable. GRUB device detection is now in the shared grub library. Use the `leapp.libraries.common.grub.get_grub_device()` function instead.
+   - **`UpdateGrub`** - Deprecated because the current implementation is not reliable. GRUB device detection is now in the shared grub library. Use the `leapp.libraries.common.grub.get_grub_device()` function instead.
+- Shared libraries
+   - **`leapp.libraries.common.testutils.logger_mocked.warn()`** - The logging.warn method has been deprecated in Python since version  3.3. Use the warning method instead.
+
+## v0.11.0 <span style="font-size:0.5em; font-weight:normal">(till April  2021)</span>
+- Models
+   - **`TMPTargetRepositoriesFacts`** - Deprecated because this model was not intended for customer use.
+
+
+

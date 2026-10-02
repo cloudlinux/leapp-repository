@@ -10,7 +10,7 @@ pipeline {
         parallelsAlwaysFailFast()
     }
     parameters {
-        // choice(name: 'TARGET_DISTRO_FILTER', choices: ['almalinux-9', 'centos-stream-9', 'eurolinux-9', 'rocky-9', 'all'], description: 'Select a target distro or all for ELevation')
+        // choice(name: 'TARGET_DISTRO_FILTER', choices: ['almalinux-9', 'centos-stream-9', 'rocky-9', 'all'], description: 'Select a target distro or all for ELevation')
         choice(name: 'TARGET_DISTRO_FILTER', choices: ['almalinux-9', 'rocky-9', 'all'], description: 'Select a target distro or all for ELevation')
         choice(name: 'CONF_FILTER', choices: ['minimal', 'docker-ce'], description: 'Select a configuration')
         string(name: 'RETRY', defaultValue: '3', description: 'Input count of retry', trim: true)
@@ -73,7 +73,7 @@ pipeline {
                 axes {
                     axis {
                         name 'TARGET_DISTRO'
-                        // values 'almalinux-9', 'centos-stream-9', 'eurolinux-9', 'rocky-9'
+                        // values 'almalinux-9', 'centos-stream-9', 'rocky-9'
                         values 'almalinux-9', 'rocky-9'
                     }
                 }
@@ -186,15 +186,6 @@ def targetDistroSpec(distro) {
         case 'almalinux-9':
             vm = 'almalinux_9'
             ldata = 'leapp-data-almalinux'
-
-            spec = [
-                vmName: vm,
-                leappData: ldata
-            ]
-            break
-        case 'eurolinux-9':
-            vm = 'eurolinux_9'
-            ldata = 'leapp-data-eurolinux'
 
             spec = [
                 vmName: vm,

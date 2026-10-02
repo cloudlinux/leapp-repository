@@ -1,6 +1,7 @@
 import contextlib
 import os
 import shutil
+import sys
 from collections import namedtuple
 
 from leapp.exceptions import StopActorExecutionError
@@ -65,6 +66,27 @@ This is the minimal size (in MiB) that will be always reserved for /var/lib/leap
 In case the size of the container is larger than _MAGICAL_CONSTANT_MIN_PROTECTED_SIZE
 or close to that size, stay always with this minimal protected size defined by
 this constant.
+"""
+
+_MAX_DISK_IMAGE_SIZE_MB = 2**20  # 1*TB
+"""
+Maximum size of the created (sparse) images.
+
+Defaults to 1TB. If a disk with capacity larger than _MAX_DISK_IMAGE_SIZE_MB
+is mounted on the system, the corresponding image used to store overlay
+modifications will be capped to _MAX_DISK_IMAGE_SIZE_MB.
+
+Engineering rationale:
+   This constant was introduced to prevent leapp from creating files that are
+   virtually larger than the maximum file size supported by the file system.
+   E.g. if the source system hosts /var/lib/leapp on EXT4, then we cannot
+   create a file larger than 16TB.
+   We create these "disk images" to be able to verify the system has enough
+   disk space to perform the RPM upgrade transaction. From our experience,
+   we are not aware of any system which could have installed so much content
+   by RPMs that we would need 1TB of the free space on a single FS. Therefore,
+   we consider this value as safe while preventing us from exceeding FS
+   limits.
 """
 
 
@@ -141,27 +163,6 @@ def get_recommended_leapp_free_space(userspace_path=None):
     return prot_size
 
 
-def _get_max_diskimage_size_mibs(directory):
-    """
-    Return the maximum sparse file size in MiB supported by the filesystem at `directory`.
-
-    Uses PC_FILESIZEBITS (number of bits in a file offset) to derive the limit.
-    Example: ext4 with 4K blocks reports 44 bits -> max 16 TiB.
-
-    Returns None if the limit cannot be determined, in which case no capping is applied.
-    """
-    try:
-        filesizebits = os.pathconf(directory, 'PC_FILESIZEBITS')
-        return (2 ** filesizebits - 1) // (1024 * 1024)
-    except (AttributeError, ValueError, OSError):
-        api.current_logger().warning(
-            'Cannot determine filesystem file size limit for %s.'
-            ' Disk image sizes will not be capped by filesystem limit.',
-            directory
-        )
-        return None
-
-
 def _get_fspace(path, convert_to_mibs=False, coefficient=1):
     """
     Return the free disk space on given path.
@@ -184,7 +185,7 @@ def _get_fspace(path, convert_to_mibs=False, coefficient=1):
     coefficient = min(coefficient, 1)
     fspace_bytes = int(stat.f_frsize * stat.f_bavail * coefficient)
     if convert_to_mibs:
-        return int(fspace_bytes / 1024 / 1024)  # noqa: W1619; pylint: disable=old-division
+        return int(fspace_bytes / 1024 / 1024)
     return fspace_bytes
 
 
@@ -295,12 +296,11 @@ def _prepare_required_mounts(scratch_dir, mounts_dir, storage_info, scratch_rese
     space_needed = scratch_reserve + _MAGICAL_CONSTANT_OVL_SIZE * len(mount_points)
     _ensure_enough_diskimage_space(space_needed, scratch_dir)
 
-    # free space required on this partition should not be affected by durin the
+    # free space required on this partition should not be affected by during the
     # upgrade transaction execution by space consumed on creation of disk images
     # as disk images are cleaned in the end of this functions,
     # but we want to reserve some space in advance.
     scratch_disk_size = _get_fspace(scratch_dir, convert_to_mibs=True) - scratch_reserve
-    max_image_size_mibs = _get_max_diskimage_size_mibs(disk_images_directory)
 
     result = {}
     for mountpoint in mount_points:
@@ -308,13 +308,13 @@ def _prepare_required_mounts(scratch_dir, mounts_dir, storage_info, scratch_rese
         disk_size = _get_fspace(mountpoint, convert_to_mibs=True, coefficient=0.95)
         if mountpoint == scratch_mp:
             disk_size = scratch_disk_size
-        if max_image_size_mibs is not None and disk_size > max_image_size_mibs:
-            api.current_logger().warning(
-                'Disk image size for %s (%d MiB) exceeds filesystem file size limit (%d MiB).'
-                ' Capping to filesystem limit.',
-                mountpoint, disk_size, max_image_size_mibs
-            )
-            disk_size = max_image_size_mibs
+
+        if disk_size > _MAX_DISK_IMAGE_SIZE_MB:
+            msg = ('Image for overlayfs corresponding to the disk mounted at %s would ideally have %d MB, '
+                   'but we truncate it to %d MB to avoid bumping to max file limits.')
+            api.current_logger().info(msg, mountpoint, disk_size, _MAX_DISK_IMAGE_SIZE_MB)
+            disk_size = _MAX_DISK_IMAGE_SIZE_MB
+
         image = _create_mount_disk_image(disk_images_directory, mountpoint, disk_size)
         result[mountpoint] = mounting.LoopMount(
             source=image,
@@ -325,6 +325,9 @@ def _prepare_required_mounts(scratch_dir, mounts_dir, storage_info, scratch_rese
 
 @contextlib.contextmanager
 def _build_overlay_mount(root_mount, mounts):
+    # noqa: W0135; pylint: disable=bad-option-value,contextmanager-generator-missing-cleanup
+    # NOTE(pstodulk): the pylint check is not valid in this case - finally is covered
+    # implicitly
     if not root_mount:
         raise StopActorExecutionError('Root mount point has not been prepared for overlayfs.')
     if not mounts:
@@ -369,7 +372,12 @@ def cleanup_scratch(scratch_dir, mounts_dir):
         # NOTE(pstodulk): From time to time, it helps me with some experiments
         return
     api.current_logger().debug('Recursively removing scratch directory %s.', scratch_dir)
-    shutil.rmtree(scratch_dir, onerror=utils.report_and_ignore_shutil_rmtree_error)
+    if sys.version_info >= (3, 12):
+        # NOTE(mmatuska): The pylint suppressions are required because of a bug in pylint:
+        # (https://github.com/pylint-dev/pylint/issues/9622)
+        shutil.rmtree(scratch_dir, onexc=utils.report_and_ignore_shutil_rmtree_error)  # noqa: E501; pylint: disable=unexpected-keyword-arg
+    else:
+        shutil.rmtree(scratch_dir, onerror=utils.report_and_ignore_shutil_rmtree_error)  # noqa: E501; pylint: disable=deprecated-argument
     api.current_logger().debug('Recursively removed scratch directory %s.', scratch_dir)
 
 
@@ -472,8 +480,8 @@ def _create_mount_disk_image(disk_images_directory, path, disk_size):
         # NOTE(pstodulk): In case the formatting params are modified,
         # the minimal required size could be different
         api.current_logger().warning(
-            'The apparent size for the disk image representing {path}'
-            ' is too small ({disk_size} MiBs) for a formatting. Setting 130 MiBs instead.'
+            'The apparent size for the disk image representing {path} '
+            'is too small ({disk_size} MiBs) for a formatting. Setting 130 MiBs instead.'
             .format(path=path, disk_size=disk_size)
         )
         disk_size = 130
@@ -481,12 +489,11 @@ def _create_mount_disk_image(disk_images_directory, path, disk_size):
     cmd = [
         '/bin/dd',
         'if=/dev/zero', 'of={}'.format(diskimage_path),
-        'bs=1M', 'count=0', 'seek={}'.format(disk_size)
+        'bs=1M', 'count=0', 'seek={}'.format(disk_size),
     ]
     hint = (
         'Please ensure that there is enough diskspace on the partition hosting'
-        'the {} directory.'
-        .format(disk_images_directory)
+        'the {} directory.'.format(disk_images_directory)
     )
 
     api.current_logger().debug('Attempting to create disk image at %s', diskimage_path)
@@ -532,7 +539,9 @@ def _create_mounts_dir(scratch_dir, mounts_dir):
         utils.makedirs(mounts_dir)
         api.current_logger().debug('Done creating mount directories.')
     except OSError:
-        api.current_logger().error('Failed to create mounting directories %s', mounts_dir, exc_info=True)
+        api.current_logger().error(
+            'Failed to create mounting directories %s', mounts_dir, exc_info=True
+        )
 
         # This is an attempt for giving the user a chance to resolve it on their own
         raise StopActorExecutionError(
@@ -548,14 +557,25 @@ def _mount_dnf_cache(overlay_target):
     """
     Convenience context manager to ensure bind mounted /var/cache/dnf and removal of the mount.
     """
+    # noqa: W0135; pylint: disable=bad-option-value,contextmanager-generator-missing-cleanup
+    # NOTE(pstodulk): the pylint check is not valid in this case - finally is covered
+    # implicitly
     with mounting.BindMount(
-            source='/var/cache/dnf',
-            target=os.path.join(overlay_target, 'var', 'cache', 'dnf')) as cache_mount:
+        source='/var/cache/dnf',
+        target=os.path.join(overlay_target, 'var', 'cache', 'dnf'),
+    ) as cache_mount:
         yield cache_mount
 
 
 @contextlib.contextmanager
-def create_source_overlay(mounts_dir, scratch_dir, xfs_info, storage_info, mount_target=None, scratch_reserve=0):
+def create_source_overlay(
+    mounts_dir,
+    scratch_dir,
+    xfs_info,
+    storage_info,
+    mount_target=None,
+    scratch_reserve=0,
+):
     """
     Context manager that prepares the source system overlay and yields the mount.
 
@@ -574,12 +594,6 @@ def create_source_overlay(mounts_dir, scratch_dir, xfs_info, storage_info, mount
     in the OVERLAY_DO_NOT_MOUNT set. Such prepared OVL images are then composed
     together to reflect the real host filesystem. In the end everything is cleaned.
 
-    The new solution can be now problematic for system with too many partitions
-    and loop devices. For such systems we keep for now the possibility of the
-    fallback to an old solution, which has however number of issues that are
-    fixed by the new design. To fallback to the old solution, set envar:
-        LEAPP_OVL_LEGACY=1
-
     Disk images created for OVL are formatted with XFS by default. In case of
     problems, it's possible to switch to Ext4 FS using:
         LEAPP_OVL_IMG_FS_EXT4=1
@@ -588,7 +602,7 @@ def create_source_overlay(mounts_dir, scratch_dir, xfs_info, storage_info, mount
     :type mounts_dir: str
     :param scratch_dir: Absolute path to the directory in which all disk and OVL images are stored.
     :type scratch_dir: str
-    :param xfs_info: The XFSPresence message.
+    :param xfs_info: The XFSPresence message (this is currently unused, but kept for compatibility).
     :type xfs_info: leapp.models.XFSPresence
     :param storage_info: The StorageInfo message.
     :type storage_info: leapp.models.StorageInfo
@@ -599,22 +613,15 @@ def create_source_overlay(mounts_dir, scratch_dir, xfs_info, storage_info, mount
     :type scratch_reserve: Optional[int]
     :rtype: mounting.BindMount or mounting.NullMount
     """
+    # noqa: W0135; pylint: disable=bad-option-value,contextmanager-generator-missing-cleanup
+    # NOTE(pstodulk): the pylint check is not valid in this case - finally is covered
+    # implicitly
     api.current_logger().debug('Creating source overlay in {scratch_dir} with mounts in {mounts_dir}'.format(
         scratch_dir=scratch_dir, mounts_dir=mounts_dir))
     try:
         _create_mounts_dir(scratch_dir, mounts_dir)
-        if get_env('LEAPP_OVL_LEGACY', '0') != '1':
-            mounts = _prepare_required_mounts(scratch_dir, mounts_dir, storage_info, scratch_reserve)
-        else:
-            # fallback to the deprecated OVL solution
-            mounts = _prepare_required_mounts_old(scratch_dir, mounts_dir, _get_mountpoints(storage_info), xfs_info)
+        mounts = _prepare_required_mounts(scratch_dir, mounts_dir, storage_info, scratch_reserve)
         with mounts.pop('/') as root_mount:
-            # it's important to make system_overlay shared because we
-            # later mount it into mount_target with some tricky way:
-            #  1. create system_overlay mount
-            #  2. mount system_overlay to mount_target (e.g. installroot)
-            #  3. mount other mounts like /tmp, /usr inside system_overlay
-            # if at stage 3 system_overlay is not shared, mounts will not appear in `mount_target`
             with mounting.OverlayMount(name='system_overlay', source='/', workdir=root_mount.target) as root_overlay:
                 if mount_target:
                     target = mounting.BindMount(source=root_overlay.target, target=mount_target)
@@ -624,130 +631,5 @@ def create_source_overlay(mounts_dir, scratch_dir, xfs_info, storage_info, mount
                     with _build_overlay_mount(root_overlay, mounts) as overlay:
                         with _mount_dnf_cache(overlay.target):
                             yield overlay
-    except Exception:
+    finally:
         cleanup_scratch(scratch_dir, mounts_dir)
-        raise
-    # cleanup always now
-    cleanup_scratch(scratch_dir, mounts_dir)
-
-
-# #############################################################################
-# Deprecated OVL solution ...
-# This is going to be removed in future as the whole functionality is going to
-# be replaced by new one. The problem is that the new solution can potentially
-# negatively affect systems with many loop mountpoints, so let's keep this
-# as a workaround for now. I am separating the old and new code in this way
-# to make the future removal easy.
-# The code below is triggered when LEAPP_OVL_LEGACY=1 envar is set.
-# IMPORTANT: Before an update of functions above, ensure the functionality of
-# the code below is not affected, otherwise copy the function below with the
-# "_old" suffix.
-# #############################################################################
-def _ensure_enough_diskimage_space_old(space_needed, directory, xfs_mountpoint_count):
-    stat = os.statvfs(directory)
-    if (stat.f_frsize * stat.f_bavail) < (space_needed * 1024 * 1024):
-        message = ('Not enough space available for creating required disk images in {directory}. ' +
-                   'Needed: {space_needed} MiB').format(space_needed=space_needed, directory=directory)
-        # An arbitrary cutoff, but "how many XFS mountpoints is too much" is subjective.
-        if xfs_mountpoint_count > 10:
-            message += (". Hint: there are {} XFS mountpoints with ftype=0 on the system. Space "
-                        "required is calculated according to that amount".format(xfs_mountpoint_count))
-        api.current_logger().error(message)
-        raise StopActorExecutionError(message)
-
-
-def _overlay_disk_size_old():
-    """
-    Convenient function to retrieve the overlay disk size
-    """
-    try:
-        env_size = get_env('LEAPP_OVL_SIZE', '2048')
-        disk_size = int(env_size)
-    except ValueError:
-        disk_size = 2048
-        api.current_logger().warning(
-            'Invalid "LEAPP_OVL_SIZE" environment variable "%s". Setting default "%d" value', env_size, disk_size
-        )
-    return disk_size
-
-
-def _create_diskimages_dir_old(scratch_dir, diskimages_dir):
-    """
-    Prepares directories for disk images
-    """
-    api.current_logger().debug('Creating disk images directory.')
-    try:
-        utils.makedirs(diskimages_dir)
-        api.current_logger().debug('Done creating disk images directory.')
-    except OSError:
-        api.current_logger().error('Failed to create disk images directory %s', diskimages_dir, exc_info=True)
-
-        # This is an attempt for giving the user a chance to resolve it on their own
-        raise StopActorExecutionError(
-            message='Failed to prepare environment for package download while creating directories.',
-            details={
-                'hint': 'Please ensure that {scratch_dir} is empty and modifiable.'.format(scratch_dir=scratch_dir)
-            }
-        )
-
-
-def _create_mount_disk_image_old(disk_images_directory, path):
-    """
-    Creates the mount disk image, for cases when we hit XFS with ftype=0
-    """
-    diskimage_path = os.path.join(disk_images_directory, _mount_name(path))
-    disk_size = _overlay_disk_size_old()
-
-    api.current_logger().debug('Attempting to create disk image with size %d MiB at %s', disk_size, diskimage_path)
-    utils.call_with_failure_hint(
-        cmd=['/bin/dd', 'if=/dev/zero', 'of={}'.format(diskimage_path), 'bs=1M', 'count={}'.format(disk_size)],
-        hint='Please ensure that there is enough diskspace in {} at least {} MiB are needed'.format(
-            diskimage_path, disk_size)
-    )
-
-    api.current_logger().debug('Creating ext4 filesystem in disk image at %s', diskimage_path)
-    try:
-        utils.call_with_oserror_handled(cmd=['/sbin/mkfs.ext4', '-F', diskimage_path])
-    except CalledProcessError as e:
-        api.current_logger().error('Failed to create ext4 filesystem in %s', exc_info=True)
-        raise StopActorExecutionError(
-            message=str(e)
-        )
-
-    return diskimage_path
-
-
-def _prepare_required_mounts_old(scratch_dir, mounts_dir, mount_points, xfs_info):
-    result = {
-        mount_point.fs_file: mounting.NullMount(
-            _mount_dir(mounts_dir, mount_point.fs_file)) for mount_point in mount_points
-    }
-
-    if not xfs_info.mountpoints_without_ftype:
-        return result
-
-    xfs_noftype_mounts = len(xfs_info.mountpoints_without_ftype)
-    space_needed = _overlay_disk_size_old() * xfs_noftype_mounts
-    disk_images_directory = os.path.join(scratch_dir, 'diskimages')
-
-    # Ensure we cleanup old disk images before we check for space constraints.
-    run(['rm', '-rf', disk_images_directory])
-    _create_diskimages_dir_old(scratch_dir, disk_images_directory)
-    _ensure_enough_diskimage_space_old(space_needed, scratch_dir, xfs_noftype_mounts)
-
-    mount_names = [mount_point.fs_file for mount_point in mount_points]
-
-    # TODO(pstodulk): this (adding rootfs into the set always) is hotfix for
-    # bz #1911802 (not ideal one..). The problem occurs one rootfs is ext4 fs,
-    # but /var/lib/leapp/... is under XFS without ftype; In such a case we can
-    # see still the very same problems as before. But letting you know that
-    # probably this is not the final solution, as we could possibly see the
-    # same problems on another partitions too (needs to be tested...). However,
-    # it could fit for now until we provide the complete solution around XFS
-    # workarounds (including management of required spaces for virtual FSs per
-    # mountpoints - without that, we cannot fix this properly)
-    for mountpoint in set(xfs_info.mountpoints_without_ftype + ['/']):
-        if mountpoint in mount_names:
-            image = _create_mount_disk_image_old(disk_images_directory, mountpoint)
-            result[mountpoint] = mounting.LoopMount(source=image, target=_mount_dir(mounts_dir, mountpoint))
-    return result

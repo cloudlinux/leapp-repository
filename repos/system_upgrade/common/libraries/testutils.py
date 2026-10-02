@@ -4,12 +4,13 @@ import os
 from collections import namedtuple
 
 from leapp import reporting
+from leapp.actors.config import _normalize_config, normalize_schemas
 from leapp.libraries.common.config import architecture
-from leapp.models import EnvVar
+from leapp.models import EnvVar, IPUSourceToPossibleTargets
 from leapp.utils.deprecation import deprecated
 
 
-class produce_mocked(object):
+class produce_mocked:
     def __init__(self):
         self.called = 0
         self.model_instances = []
@@ -19,7 +20,7 @@ class produce_mocked(object):
         self.model_instances.extend(list(model_instances))
 
 
-class create_report_mocked(object):
+class create_report_mocked:
     def __init__(self):
         self.called = 0
         self.reports = []
@@ -37,7 +38,7 @@ class create_report_mocked(object):
         return {}
 
 
-class logger_mocked(object):
+class logger_mocked:
     def __init__(self):
         self.dbgmsg = []
         self.infomsg = []
@@ -67,21 +68,75 @@ class logger_mocked(object):
         return self
 
 
-class CurrentActorMocked(object):  # pylint:disable=R0904
-    def __init__(self, arch=architecture.ARCH_X86_64, envars=None, kernel='3.10.0-957.43.1.el7.x86_64',
-                 release_id='rhel', src_ver='7.8', dst_ver='8.1', msgs=None, flavour='default'):
+def _make_default_config(actor_config_schema):
+    """ Make a config dict populated with default values. """
+    merged_schema = normalize_schemas((actor_config_schema, ))
+    return _normalize_config({}, merged_schema)  # Will fill default values during normalization
+
+
+# Note: The constructor of the following class takes in too many arguments (R0913). A builder-like
+# pattern would be nice here. Ideally, the builder should actively prevent the developer from setting fields
+# that do not affect actor's behavior in __setattr__.
+class CurrentActorMocked:  # pylint:disable=R0904
+
+    def __init__(  # pylint: disable=too-many-arguments
+        self,
+        arch=architecture.ARCH_X86_64,
+        envars=None,  # pylint:disable=R0913
+        kernel="3.10.0-957.43.1.el7.x86_64",
+        release_id="rhel",
+        src_ver="8.10",
+        dst_ver="9.6",
+        msgs=None,
+        flavour="default",
+        config=None,
+        virtual_source_version=None,
+        virtual_target_version=None,
+        supported_upgrade_paths=None,
+        src_distro=None,
+        dst_distro=None,
+    ):
+        """
+        Note: src_distro and release_id specify the same thing, but src_distro takes priority.
+
+        :param List[IPUSourceToPossibleTargets] supported_upgrade_paths: List of supported upgrade paths.
+        """
         envarsList = [EnvVar(name=k, value=v) for k, v in envars.items()] if envars else []
-        version = namedtuple('Version', ['source', 'target'])(src_ver, dst_ver)
-        release = namedtuple('OS_release', ['release_id', 'version_id'])(release_id, src_ver)
+
+        version_fields = ['source', 'target', 'virtual_source_version', 'virtual_target_version']
+        version_values = [src_ver, dst_ver, virtual_source_version or src_ver, virtual_target_version or dst_ver]
+        version = namedtuple('Version', version_fields)(*version_values)
+
+        release = namedtuple('OS_release', ['release_id', 'version_id'])(src_distro or release_id, src_ver)
+
+        distro = namedtuple("Distro", ["source", "target"])(
+            src_distro or release_id, dst_distro or release_id
+        )
 
         self._common_folder = '../../files'
         self._common_tools_folder = '../../tools'
         self._actor_folder = 'files'
         self._actor_tools_folder = 'tools'
-        self.configuration = namedtuple(
-            'configuration', ['architecture', 'kernel', 'leapp_env_vars', 'os_release', 'version', 'flavour']
-        )(arch, kernel, envarsList, release, version, flavour)
+
+        if not supported_upgrade_paths:
+            supported_upgrade_paths = [IPUSourceToPossibleTargets(source_version=src_ver, target_versions=[dst_ver])]
+
+        ipu_conf_fields = ['architecture', 'kernel', 'leapp_env_vars', 'os_release',
+                           'version', 'flavour', 'supported_upgrade_paths', 'distro']
+        config_type = namedtuple('configuration', ipu_conf_fields)
+        self.configuration = config_type(
+            arch,
+            kernel,
+            envarsList,
+            release,
+            version,
+            flavour,
+            supported_upgrade_paths,
+            distro,
+        )
+
         self._msgs = msgs or []
+        self.config = {} if config is None else config
 
     def __call__(self):
         return self
@@ -93,7 +148,7 @@ class CurrentActorMocked(object):  # pylint:disable=R0904
         return os.path.join(self._common_tools_folder, name)
 
     def consume(self, model):
-        return iter(filter(  # pylint:disable=W0110,W1639
+        return iter(filter(
             lambda msg: isinstance(msg, model), self._msgs
         ))
 

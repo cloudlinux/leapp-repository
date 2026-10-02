@@ -18,7 +18,7 @@ except ImportError:
 DEFAULT_CONFIG_PATH = '/etc/dnf/plugins/spacewalk.conf'
 
 
-def _enable_plugin(config_path, parser_cls=ParserClass, log=None):
+def _enable_plugin(config_path, parser_cls=ParserClass, log=None, plugin_installed_fn=None):
     """Enable the DNF spacewalk plugin at `config_path`.
 
     Returns `(changed, title)` where `title` is `None` on success or
@@ -32,6 +32,18 @@ def _enable_plugin(config_path, parser_cls=ParserClass, log=None):
     """
     if not os.path.exists(config_path):
         return False, None
+
+    if plugin_installed_fn is None:
+        from leapp.libraries.common.cln_detect import is_spacewalk_plugin_installed
+        plugin_installed_fn = is_spacewalk_plugin_installed
+    if not plugin_installed_fn():
+        # A config file with no plugin behind it. rhn-client-tools 3.0+ Obsoletes
+        # dnf-plugin-spacewalk and CloudLinux 10 ships no spacewalk plugin at
+        # all, so re-enabling this would only arm a plugin that cannot run.
+        if log is not None:
+            log.info('No spacewalk plugin installed; leaving %s alone', config_path)
+        return False, None
+
     parser = parser_cls(allow_no_value=True)
     try:
         parser.read(config_path)

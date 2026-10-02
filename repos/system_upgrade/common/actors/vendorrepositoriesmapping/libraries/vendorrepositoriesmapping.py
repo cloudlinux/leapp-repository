@@ -3,7 +3,7 @@ import json
 
 from leapp.libraries.common import fetch
 from leapp.libraries.common.config.version import get_target_major_version, get_source_major_version
-from leapp.libraries.common.repomaputils import RepoMapData, read_repofile, inhibit_upgrade
+from leapp.libraries.common.repomaputils import RepoMapData
 from leapp.libraries.stdlib import api
 from leapp.models import VendorSourceRepos, RepositoriesMapping
 from leapp.models.fields import ModelViolationError

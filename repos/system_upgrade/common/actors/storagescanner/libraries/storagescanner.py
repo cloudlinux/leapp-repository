@@ -35,7 +35,7 @@ def _is_file_readable(path):
 def _get_cmd_output(cmd, delim, expected_len):
     """ Verify if command exists and return output """
     if not any(os.access(os.path.join(path, cmd[0]), os.X_OK) for path in os.environ['PATH'].split(os.pathsep)):
-        api.current_logger().warning("'%s': command not found" % cmd[0])
+        api.current_logger().warning("'%s': command not found", cmd[0])
         return
 
     try:
@@ -45,7 +45,11 @@ def _get_cmd_output(cmd, delim, expected_len):
         output = subprocess.check_output(cmd, env={'LVM_SUPPRESS_FD_WARNINGS': '1', 'PATH': os.environ['PATH']})
 
     except subprocess.CalledProcessError as e:
-        api.current_logger().debug("Command '%s' return non-zero exit status: %s" % (" ".join(cmd), e.returncode))
+        api.current_logger().debug(
+            "Command '%s' returned non-zero exit status: %s",
+            " ".join(cmd),
+            e.returncode
+        )
         return
 
     if bytes is not str:
@@ -164,18 +168,31 @@ def _get_mount_info(path):
             )
 
 
+def _get_lsblk_info_for_devpath(dev_path):
+    lsblk_cmd = ['lsblk', '-nr', '--output', 'NAME,KNAME,SIZE', dev_path]
+    lsblk_info_for_devpath = next(_get_cmd_output(lsblk_cmd, ' ', 3), None)
+
+    return lsblk_info_for_devpath
+
+
 @aslist
 def _get_lsblk_info():
     """ Collect storage info from lsblk command """
-    cmd = ['lsblk', '-pbnr', '--output', 'NAME,MAJ:MIN,RM,SIZE,RO,TYPE,MOUNTPOINT']
-    for entry in _get_cmd_output(cmd, ' ', 7):
-        dev_path, maj_min, rm, bsize, ro, tp, mountpoint = entry
-        lsblk_cmd = ['lsblk', '-nr', '--output', 'NAME,KNAME,SIZE', dev_path]
-        lsblk_info_for_devpath = next(_get_cmd_output(lsblk_cmd, ' ', 3), None)
+    cmd = ['lsblk', '-pbnr', '--output', 'NAME,MAJ:MIN,RM,SIZE,RO,TYPE,MOUNTPOINT,PKNAME']
+    for entry in _get_cmd_output(cmd, ' ', 8):
+        dev_path, maj_min, rm, bsize, ro, tp, mountpoint, parent_path = entry
+
+        lsblk_info_for_devpath = _get_lsblk_info_for_devpath(dev_path)
         if not lsblk_info_for_devpath:
             return
-
         name, kname, size = lsblk_info_for_devpath
+
+        parent_name = ""
+        if parent_path:
+            parent_info = _get_lsblk_info_for_devpath(parent_path)
+            if parent_info:
+                parent_name, _, _ = parent_info
+
         yield LsblkEntry(
             name=name,
             kname=kname,
@@ -185,13 +202,15 @@ def _get_lsblk_info():
             bsize=int(bsize),
             ro=ro,
             tp=tp,
-            mountpoint=mountpoint)
+            mountpoint=mountpoint,
+            parent_name=parent_name,
+            parent_path=parent_path)
 
 
 @aslist
 def _get_pvs_info():
     """ Collect storage info from pvs command """
-    for entry in _get_cmd_output(['pvs', '--noheadings', '--separator', r':'], ':', 6):
+    for entry in _get_cmd_output(['pvs', '--noheadings', '--separator', r'|'], '|', 6):
         pv, vg, fmt, attr, psize, pfree = entry
         yield PvsEntry(
             pv=pv,
@@ -205,7 +224,7 @@ def _get_pvs_info():
 @aslist
 def _get_vgs_info():
     """ Collect storage info from vgs command """
-    for entry in _get_cmd_output(['vgs', '--noheadings', '--separator', r':'], ':', 7):
+    for entry in _get_cmd_output(['vgs', '--noheadings', '--separator', r'|'], '|', 7):
         vg, pv, lv, sn, attr, vsize, vfree = entry
         yield VgsEntry(
             vg=vg,
@@ -220,7 +239,7 @@ def _get_vgs_info():
 @aslist
 def _get_lvdisplay_info():
     """ Collect storage info from lvdisplay command """
-    for entry in _get_cmd_output(['lvdisplay', '-C', '--noheadings', '--separator', r':'], ':', 12):
+    for entry in _get_cmd_output(['lvdisplay', '-C', '--noheadings', '--separator', r'|'], '|', 12):
         lv, vg, attr, lsize, pool, origin, data, meta, move, log, cpy_sync, convert = entry
         yield LvdisplayEntry(
             lv=lv,

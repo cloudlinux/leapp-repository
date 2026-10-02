@@ -21,7 +21,7 @@ Vagrant.configure('2') do |config|
     v.random_hostname = true
   end
 
-  target_distros = ['almalinux', 'centosstream', 'eurolinux', 'oraclelinux', 'rocky']
+  target_distros = ['almalinux', 'centosstream', 'oraclelinux', 'rocky']
 
   target_distros.each do |target_distro|
     config.vm.define "#{target_distro}_8" do |machine|

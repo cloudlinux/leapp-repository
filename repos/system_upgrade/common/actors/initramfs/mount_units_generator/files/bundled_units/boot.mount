@@ -1,0 +1,11 @@
+[Unit]
+DefaultDependencies=no
+Before=local-fs.target
+After=sysroot-boot.mount
+Requires=sysroot-boot.mount
+
+[Mount]
+What=/sysroot/boot
+Where=/boot
+Type=none
+Options=bind

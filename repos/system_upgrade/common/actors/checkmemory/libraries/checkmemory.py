@@ -34,14 +34,19 @@ def process():
     if minimum_req_error:
         title = 'Minimum memory requirements for RHEL {} are not met'.format(version.get_target_major_version())
         summary = 'Memory detected: {} MiB, required: {} MiB'.format(
-            int(minimum_req_error['detected'] / 1024),  # noqa: W1619; pylint: disable=old-division
-            int(minimum_req_error['minimal_req'] / 1024),  # noqa: W1619; pylint: disable=old-division
+            int(minimum_req_error['detected'] / 1024),
+            int(minimum_req_error['minimal_req'] / 1024),
         )
         reporting.create_report([
                           reporting.Title(title),
                           reporting.Summary(summary),
                           reporting.Severity(reporting.Severity.HIGH),
                           reporting.Groups([reporting.Groups.SANITY, reporting.Groups.INHIBITOR]),
+                          reporting.ExternalLink(
+                              url='https://access.redhat.com/solutions/7014179',
+                              title='Leapp upgrade fail with error"Minimum memory requirements '
+                                    'for RHEL 8 are not met"Upgrade cannot proceed'
+                          ),
                           reporting.ExternalLink(
                             url='https://access.redhat.com/articles/rhel-limits',
                             title='Red Hat Enterprise Linux Technology Capabilities and Limits'

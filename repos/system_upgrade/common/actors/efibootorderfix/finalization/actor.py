@@ -1,6 +1,8 @@
 import os
 import re
 
+from leapp.libraries.actor.efibootorderfix import get_distro_efi_dir
+from leapp.libraries.common.config.version import get_target_major_version
 from leapp.libraries.stdlib import run, api
 from leapp.actors import Actor
 from leapp.models import InstalledTargetKernelVersion, KernelCmdlineArg, FirmwareFacts, MountEntry
@@ -18,23 +20,11 @@ class EfiFinalizationFix(Actor):
     name = 'efi_finalization_fix'
     consumes = (KernelCmdlineArg, InstalledTargetKernelVersion, FirmwareFacts, MountEntry)
     produces = ()
-    tags = (FinalizationPhaseTag, IPUWorkflowTag)
+    tags = (FinalizationPhaseTag.Before, IPUWorkflowTag)
 
     def process(self):
         is_system_efi = False
         ff = next(self.consume(FirmwareFacts), None)
-
-        dirname = {
-                'AlmaLinux': 'almalinux',
-                'CentOS Linux': 'centos',
-                'CentOS Stream': 'centos',
-                'Oracle Linux Server': 'redhat',
-                'Red Hat Enterprise Linux': 'redhat',
-                'Rocky Linux': 'rocky',
-                'Scientific Linux': 'redhat',
-                'EuroLinux': 'eurolinux',
-                'CloudLinux': 'centos',
-        }
 
         efi_shimname_dict = {
             'x86_64': 'shimx64.efi',
@@ -67,7 +57,7 @@ class EfiFinalizationFix(Actor):
             distro = release_line.split(' release ', 1)[0]
 
         efi_bootentry_label = distro
-        distro_dir = dirname.get(distro, 'default')
+        distro_dir = get_distro_efi_dir(distro, get_target_major_version())
         shim_filename = efi_shimname_dict.get(api.current_actor().configuration.architecture, 'shimx64.efi')
 
         shim_path = '/boot/efi/EFI/' + distro_dir + '/' + shim_filename

@@ -14,6 +14,15 @@ def _get_pubkeys(installed_rpms):
     db_pubkeys = [key.fingerprint for key in pubkeys]
     certs_path = get_path_to_gpg_certs()
     for trusted_dir in certs_path:
+        if not os.path.isdir(trusted_dir):
+            # The path is composed from the target distro and major version, and
+            # nothing guarantees the tree carries a directory for every
+            # combination. A missing one means no extra trusted keys, not a
+            # reason to terminate the actor.
+            api.current_logger().debug(
+                'No trusted GPG key directory at %s, skipping it', trusted_dir
+            )
+            continue
         for certname in os.listdir(trusted_dir):
             key_file = os.path.join(trusted_dir, certname)
             fps = get_gpg_fp_from_file(key_file)

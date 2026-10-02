@@ -20,7 +20,7 @@ def raise_call_error(args=None):
     )
 
 
-class RunMocked(object):
+class RunMocked:
 
     def __init__(self, raise_err=False):
         self.called = 0
@@ -42,6 +42,8 @@ class RunMocked(object):
             stdout = 'ARRAY /dev/md0 level=raid1 num-devices=2 metadata=1.2 name=localhost.localdomain:0 UUID=c4acea6e:d56e1598:91822e3f:fb26832c\n    devices=/dev/sda1,/dev/sdb1'  # noqa: E501; pylint: disable=line-too-long
         elif self.args == ['mdadm', '--detail', '--verbose', '--brief', NOT_MD_DEVICE]:
             stdout = 'mdadm: /dev/sda does not appear to be an md device'
+        else:
+            assert False, 'RunMockedError: Called unexpected cmd not covered by test: {}'.format(self.args)
 
         return {'stdout': stdout}
 
