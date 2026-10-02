@@ -291,6 +291,10 @@ def _install_cloudlinux_release(context, target_major_version, enabled_repos=())
     --allowerasing dnf cannot resolve those conflicts and target_userspace_creator
     crashes (ZD 287724). Erasing here only touches the discarded overlay; the real
     upgrade transaction already resolves with allow_erasing=True.
+
+    It is also what makes dnf in the overlay report the target release in its
+    User-Agent, which the CloudLinux mirrorlist picks the channel by - see
+    cloudlinux/libraries/targetrepoquery.py.
     """
     urls = _get_cloudlinux_release_urls(target_major_version)
     repo_opts = []

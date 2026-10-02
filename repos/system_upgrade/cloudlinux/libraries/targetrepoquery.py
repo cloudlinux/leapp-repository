@@ -7,12 +7,23 @@ therefore runs where the transaction does: inside the target userspace.
 
 The CloudLinux mirrorlist decides that, not the repofile. It answers by the
 client's own release, which it reads from dnf's User-Agent, not by the channel
-the URL names. dnf on a CloudLinux 8 source sends "CloudLinux 8.10", so
-.../cloudlinux-x86_64-server-9.8 comes back as the 8.10 channel; dnf inside the
-target userspace sends "CloudLinux 9.8" and gets 9.8. Run through the source
-system's dnf with --installroot, the essential-package check saw only el8
-builds of lve-stats3 and inhibited every CloudLinux 8 to 9 upgrade over a
-package the transaction installs.
+the URL names; and dnf builds that User-Agent from the /etc/os-release of the
+root it runs in, never from --installroot. dnf on a CloudLinux 8 source sends
+"CloudLinux 8.10", so .../cloudlinux-x86_64-server-9.8 comes back as the 8.10
+channel. Run that way, the essential-package check saw only el8 builds of
+lve-stats3 and inhibited every CloudLinux 8 to 9 upgrade over a package the
+transaction installs.
+
+Everything else is already on the right side of this. target_userspace_creator
+installs the target cloudlinux-release into the source overlay before it builds
+the userspace (_install_cloudlinux_release), so dnf there reports the target
+release, and the transaction runs inside the target userspace.
+
+The query also keeps its own metadata cache, because dnf reuses cached metadata
+whatever release the client now reports: what another dnf call left in the
+userspace's /var/cache/dnf would be read back unchanged. QUERY_CACHEDIR is inside
+the target userspace, which is rebuilt on every leapp run, so only these queries
+ever fill it.
 
 --releasever is the target version, as the DNF plugin gives the transaction.
 skip_if_unavailable keeps one unreachable repository from failing every query:
@@ -24,6 +35,9 @@ dnf exit 1 for any query at all.
 from leapp.libraries.common import mounting
 from leapp.libraries.common.config.version import get_target_version
 
+# Inside the target userspace; see the module docstring for why not /var/cache/dnf.
+QUERY_CACHEDIR = '/var/cache/leapp-target-repoquery'
+
 
 def query_available(installroot, queryformat, name):
     """stdout of a repoquery for the available builds of `name`.
@@ -34,6 +48,7 @@ def query_available(installroot, queryformat, name):
     cmd = [
         'dnf', '-q', 'repoquery',
         '--releasever={0}'.format(get_target_version()),
+        '--setopt=cachedir={0}'.format(QUERY_CACHEDIR),
         '--setopt=*.skip_if_unavailable=1',
         '--available',
         '--queryformat={0}'.format(queryformat),
