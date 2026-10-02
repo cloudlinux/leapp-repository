@@ -10,6 +10,7 @@ gets exercised here.
 import pytest
 
 from leapp.libraries.actor import checktargetkernelminor as lib
+from leapp.libraries.common import mounting
 from leapp.libraries.common.testutils import CurrentActorMocked, logger_mocked
 
 
@@ -225,47 +226,61 @@ def test_still_checks_targets_that_do_have_minors(monkeypatch):
     assert queried == ['kernel-core', 'cloudlinux-release']
 
 
+def _capture_query(monkeypatch, stdout=''):
+    """Record where the repoquery runs: inside the target userspace, which is what
+    mounting.run sees, or through the source system's own dnf, which is lib.run."""
+    seen = {}
+
+    def answer(where):
+        def fake_run(cmd, **dummy):
+            seen[where] = cmd
+            return {'stdout': stdout}
+        return fake_run
+
+    monkeypatch.setattr(mounting, "run", answer('container'))
+    monkeypatch.setattr(lib, "run", answer('host'), raising=False)
+    monkeypatch.setattr(lib.api, "current_logger", logger_mocked())
+    monkeypatch.setattr(lib.api, "current_actor", CurrentActorMocked(dst_ver="9.8"))
+    return seen
+
+
+def test_the_query_runs_inside_the_target_userspace(monkeypatch):
+    """The CloudLinux mirrorlist answers by the client's release, read from the
+    User-Agent: dnf on a CL8 source asking for cloudlinux-x86_64-server-9.8 gets
+    the 8.10 channel, so cloudlinux-release came from a channel the upgrade never
+    installs from. The transaction runs inside the target userspace; so must this."""
+    seen = _capture_query(monkeypatch)
+
+    lib._repoquery("/installroot", "cloudlinux-release")
+
+    assert 'host' not in seen, "queried through the source system's dnf"
+    cmd = seen['container']
+    assert cmd[0] == 'systemd-nspawn'
+    assert cmd[cmd.index('-D') + 1] == '/installroot'
+    assert not any(arg.startswith('--installroot') for arg in cmd)
+
+
 def test_repoquery_tolerates_an_unavailable_repo(monkeypatch):
     """One broken repository must not silently switch this check off.
 
-    The query runs against the target userspace, which inherits the source
-    system's repofiles. A stale one - cl-mysql, whose baseurl interpolates
-    $releasever and 404s on the target - makes dnf exit 1 for every query. This
-    library then reads two empty lists, logs "could not determine both minors"
-    and returns, so the CLOS-3716 guard is off on exactly the kind of untidy box
-    most likely to need it.
+    The target userspace inherits the source system's repofiles. A stale one -
+    cl-mysql, whose baseurl interpolates $releasever and 404s on the target -
+    makes dnf exit 1 for every query. This library then reads two empty lists,
+    logs "could not determine both minors" and returns, so the CLOS-3716 guard is
+    off on exactly the kind of untidy box most likely to need it.
     """
-    seen = {}
-
-    def fake_run(cmd, **dummy):
-        seen['cmd'] = cmd
-        return {'stdout': '5.14.0|611.5.1.el9_7\n'}
-
-    monkeypatch.setattr(lib, "run", fake_run)
-    monkeypatch.setattr(lib.api, "current_logger", logger_mocked())
-    monkeypatch.setattr(lib.api, "current_actor", CurrentActorMocked(dst_ver="9.8"))
+    seen = _capture_query(monkeypatch, stdout='5.14.0|611.5.1.el9_7\n')
 
     rows = lib._repoquery("/installroot", "kernel-core")
 
     assert rows == [('5.14.0', '611.5.1.el9_7')]
-    assert any('skip_if_unavailable=1' in arg for arg in seen['cmd'])
+    assert any('skip_if_unavailable=1' in arg for arg in seen['container'])
 
 
-def test_repoquery_reads_the_channel_the_transaction_will(monkeypatch):
-    """cloudlinux-release comes from cloudlinux-x86_64-server-$releasever, and
-    without --releasever dnf reads the bare-major channel instead of the target
-    minor's - so the check compared the kernel against a channel the upgrade
-    never installs from."""
-    seen = {}
-
-    def fake_run(cmd, **dummy):
-        seen['cmd'] = cmd
-        return {'stdout': ''}
-
-    monkeypatch.setattr(lib, "run", fake_run)
-    monkeypatch.setattr(lib.api, "current_logger", logger_mocked())
-    monkeypatch.setattr(lib.api, "current_actor", CurrentActorMocked(dst_ver="9.8"))
+def test_repoquery_asks_for_the_target_version(monkeypatch):
+    """The DNF plugin gives the transaction --releasever; the query gives the same."""
+    seen = _capture_query(monkeypatch)
 
     lib._repoquery("/installroot", "cloudlinux-release")
 
-    assert '--releasever=9.8' in seen['cmd']
+    assert '--releasever=9.8' in seen['container']

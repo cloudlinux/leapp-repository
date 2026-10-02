@@ -25,8 +25,8 @@ import re
 
 from leapp import reporting
 from leapp.libraries.common.config.version import get_target_major_version
-from leapp.libraries.common.targetrepoquery import repoquery_cmd
-from leapp.libraries.stdlib import api, CalledProcessError, run
+from leapp.libraries.common.targetrepoquery import query_available
+from leapp.libraries.stdlib import api, CalledProcessError
 from leapp.models import InstalledRPM
 
 # The CloudLinux userland whose loss makes the machine no longer a CloudLinux
@@ -83,19 +83,18 @@ def _repoquery(installroot, name):
     every query exit 1. Read as "no build", that named all fourteen essential
     packages when one was genuinely behind.
 
-    repoquery_cmd keeps such a repository from taking the query down in the
+    query_available keeps such a repository from taking the query down in the
     first place; None is what is left when something else does.
     """
-    cmd = repoquery_cmd(installroot, '%{epoch}|%{version}|%{release}\n', name)
     try:
-        result = run(cmd, split=False)
+        stdout = query_available(installroot, '%{epoch}|%{version}|%{release}\n', name)
     except (OSError, CalledProcessError) as exc:
         api.current_logger().warning(
             'repoquery for %s in %s failed: %s', name, installroot, exc
         )
         return None
     rows = []
-    for line in (result.get('stdout') or '').splitlines():
+    for line in stdout.splitlines():
         line = line.strip()
         if line.count('|') != 2:
             continue

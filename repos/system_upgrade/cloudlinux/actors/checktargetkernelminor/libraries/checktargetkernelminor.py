@@ -21,8 +21,8 @@ import re
 
 from leapp import reporting
 from leapp.libraries.common.config.version import get_target_major_version
-from leapp.libraries.common.targetrepoquery import repoquery_cmd
-from leapp.libraries.stdlib import CalledProcessError, api, run
+from leapp.libraries.common.targetrepoquery import query_available
+from leapp.libraries.stdlib import CalledProcessError, api
 
 
 # CloudLinux/RHEL dist-tag with minor version: e.g.
@@ -97,18 +97,17 @@ def _repoquery(installroot, pkg):
     than as evidence of safety.
     """
     # A query that fails reads as an empty list, so the caller logs "could not
-    # determine both minors" and returns: repoquery_cmd's skip_if_unavailable is
-    # what keeps one stale repofile from switching the CLOS-3716 guard off.
-    cmd = repoquery_cmd(installroot, '%{version}|%{release}\n', pkg)
+    # determine both minors" and returns: query_available's skip_if_unavailable
+    # is what keeps one stale repofile from switching the CLOS-3716 guard off.
     try:
-        result = run(cmd, split=False)
+        stdout = query_available(installroot, '%{version}|%{release}\n', pkg)
     except (OSError, CalledProcessError) as exc:
         api.current_logger().warning(
             'repoquery for %s in %s failed: %s', pkg, installroot, exc
         )
         return []
     rows = []
-    for line in (result.get('stdout') or '').splitlines():
+    for line in stdout.splitlines():
         line = line.strip()
         if not line or '|' not in line:
             continue

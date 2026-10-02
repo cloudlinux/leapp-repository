@@ -2,6 +2,7 @@ import pytest
 
 from leapp import reporting
 from leapp.libraries.actor import checkclstacksurvives as lib
+from leapp.libraries.common import mounting
 from leapp.libraries.common.testutils import create_report_mocked, CurrentActorMocked, logger_mocked
 from leapp.libraries.stdlib import api, CalledProcessError
 from leapp.models import InstalledRPM, RPM
@@ -212,50 +213,63 @@ def test_an_empty_answer_still_means_no_target_build():
     assert indeterminate == []
 
 
-def test_repoquery_tolerates_an_unavailable_repo(monkeypatch):
-    """One broken repo must not take the whole query down with it."""
+def _capture_query(monkeypatch, stdout='', dst_ver='10', fail=False):
+    """Record where the repoquery runs: inside the target userspace, which is what
+    mounting.run sees, or through the source system's own dnf, which is lib.run."""
     seen = {}
 
-    def fake_run(cmd, **dummy):
-        seen['cmd'] = cmd
-        return {'stdout': '0|7.6.47|1.el10.cloudlinux\n'}
+    def answer(where):
+        def fake_run(cmd, **dummy):
+            seen[where] = cmd
+            if fail:
+                raise CalledProcessError('failed', cmd, {'exit_code': 1, 'stdout': '', 'stderr': ''})
+            return {'stdout': stdout}
+        return fake_run
 
-    monkeypatch.setattr(lib, 'run', fake_run)
+    monkeypatch.setattr(mounting, 'run', answer('container'))
+    monkeypatch.setattr(lib, 'run', answer('host'), raising=False)
     monkeypatch.setattr(api, 'current_logger', logger_mocked())
-    monkeypatch.setattr(api, 'current_actor', CurrentActorMocked(dst_ver='10'))
-
-    assert lib._repoquery('/installroot', 'cagefs') == [('0', '7.6.47', '1.el10.cloudlinux')]
-    assert any('skip_if_unavailable=1' in arg for arg in seen['cmd'])
+    monkeypatch.setattr(api, 'current_actor', CurrentActorMocked(dst_ver=dst_ver))
+    return seen
 
 
-def test_repoquery_reads_the_channel_the_transaction_will(monkeypatch):
-    """The CloudLinux channel is cloudlinux-x86_64-server-$releasever. Left to
-    itself, dnf takes $releasever from the target userspace's release package -
-    "9" - and cloudlinux-x86_64-server-9 is frozen with 9.0-era content, without
-    lve-stats3 at all. The transaction reads cloudlinux-x86_64-server-9.8, which
-    carries it, so every CL8 to CL9 upgrade was inhibited over a package it
-    installs."""
-    seen = {}
-
-    def fake_run(cmd, **dummy):
-        seen['cmd'] = cmd
-        return {'stdout': ''}
-
-    monkeypatch.setattr(lib, 'run', fake_run)
-    monkeypatch.setattr(api, 'current_logger', logger_mocked())
-    monkeypatch.setattr(api, 'current_actor', CurrentActorMocked(dst_ver='9.8'))
+def test_the_query_runs_inside_the_target_userspace(monkeypatch):
+    """The CloudLinux mirrorlist answers by the client's own release, read from the
+    User-Agent, not by the channel the URL names. dnf on the CL8 source sends
+    "CloudLinux 8.10", so .../cloudlinux-x86_64-server-9.8 came back as the 8.10
+    channel: the only lve-stats3 builds the query saw were el8 ones, and every CL8
+    to CL9 upgrade was inhibited over a package the transaction installs. The
+    transaction runs inside the target userspace, whose dnf reports CloudLinux 9.8;
+    the query has to run there too."""
+    seen = _capture_query(monkeypatch, dst_ver='9.8')
 
     lib._repoquery('/installroot', 'lve-stats3')
 
-    assert '--releasever=9.8' in seen['cmd']
+    assert 'host' not in seen, 'queried through the source system\'s dnf'
+    cmd = seen['container']
+    assert cmd[0] == 'systemd-nspawn'
+    assert cmd[cmd.index('-D') + 1] == '/installroot'
+    assert not any(arg.startswith('--installroot') for arg in cmd)
+
+
+def test_repoquery_tolerates_an_unavailable_repo(monkeypatch):
+    """One broken repo must not take the whole query down with it."""
+    seen = _capture_query(monkeypatch, stdout='0|7.6.47|1.el10.cloudlinux\n')
+
+    assert lib._repoquery('/installroot', 'cagefs') == [('0', '7.6.47', '1.el10.cloudlinux')]
+    assert any('skip_if_unavailable=1' in arg for arg in seen['container'])
+
+
+def test_repoquery_asks_for_the_target_version(monkeypatch):
+    """The DNF plugin gives the transaction --releasever; the query gives the same."""
+    seen = _capture_query(monkeypatch, dst_ver='9.8')
+
+    lib._repoquery('/installroot', 'lve-stats3')
+
+    assert '--releasever=9.8' in seen['container']
 
 
 def test_repoquery_returns_none_when_the_command_fails(monkeypatch):
-    def boom(cmd, **dummy):
-        raise CalledProcessError('failed', cmd, {'exit_code': 1, 'stdout': '', 'stderr': ''})
-
-    monkeypatch.setattr(lib, 'run', boom)
-    monkeypatch.setattr(api, 'current_logger', logger_mocked())
-    monkeypatch.setattr(api, 'current_actor', CurrentActorMocked(dst_ver='10'))
+    _capture_query(monkeypatch, fail=True)
 
     assert lib._repoquery('/installroot', 'cagefs') is None
