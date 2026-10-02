@@ -25,6 +25,13 @@ userspace's /var/cache/dnf would be read back unchanged. QUERY_CACHEDIR is insid
 the target userspace, which is rebuilt on every leapp run, so only these queries
 ever fill it.
 
+The container runs with SYSTEMD_SECCOMP=0 when the target is 9, as dnfplugin's
+own nspawn calls do. systemd 239 on a CloudLinux 8 source filters clone3, which
+the el9 glibc uses to create threads, so inside the el9 userspace dnf cannot
+start libcurl's resolver thread ("getaddrinfo() thread failed to start"). Every
+repository then fails to download, skip_if_unavailable hides it, and every
+query answers nothing at all.
+
 --releasever is the target version, as the DNF plugin gives the transaction.
 skip_if_unavailable keeps one unreachable repository from failing every query:
 the target userspace inherits the source system's repofiles, and a stale one -
@@ -33,7 +40,7 @@ dnf exit 1 for any query at all.
 """
 
 from leapp.libraries.common import mounting
-from leapp.libraries.common.config.version import get_target_version
+from leapp.libraries.common.config.version import get_target_major_version, get_target_version
 
 # Inside the target userspace; see the module docstring for why not /var/cache/dnf.
 QUERY_CACHEDIR = '/var/cache/leapp-target-repoquery'
@@ -54,6 +61,10 @@ def query_available(installroot, queryformat, name):
         '--queryformat={0}'.format(queryformat),
         name,
     ]
+    env = {}
+    if get_target_major_version() == '9':
+        # As dnfplugin does: allow the RHEL 9 syscalls systemd-nspawn 239 filters.
+        env = {'SYSTEMD_SECCOMP': '0'}
     with mounting.NspawnActions(base_dir=installroot) as context:
-        result = context.call(cmd, split=False)
+        result = context.call(cmd, split=False, env=env)
     return result.get('stdout') or ''
