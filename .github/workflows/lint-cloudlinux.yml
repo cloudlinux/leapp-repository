@@ -7,33 +7,26 @@ name: Lint (cloudlinux)
 # stray non-ASCII bytes in Python source (em-dashes, smart quotes,
 # ellipsis from copy/paste, leftover BOMs).
 #
-# The checks are `make lint-non-ascii`, `make lint-spec-release`,
-# `make lint-py27-syntax` and `make lint-spec-platforms`, which delegate to
-# utils/check-non-ascii.py, utils/check-spec-release.py,
-# utils/check-py27-syntax.py and utils/check-spec-platforms.py. All four are also
-# prerequisites of `make lint`, so local developers get the identical rules
-# when they run the full lint locally.
+# The checks are `make lint-non-ascii`, `make lint-spec-release` and
+# `make lint-spec-platforms`, which delegate to utils/check-non-ascii.py,
+# utils/check-spec-release.py and utils/check-spec-platforms.py. All three are
+# also prerequisites of `make lint`, so local developers get the identical
+# rules when they run the full lint locally.
 #
 # lint-spec-release guards the release number the spec declares. Upstream's
 # Makefile stamped a computed release over it for COPR scratch builds, using
 # an unanchored substring match that corrupted any release ending in 1 -
 # 0.20.0-11 was built as 0.20.0-10.<timestamp>.<sha>.HEAD and discarded.
 #
-# lint-py27-syntax guards the CL7 -> CL8 upgrade, which runs the framework
-# under python2.7 on the source system. Upstream's own test matrix bottoms out
-# at python3.6, so every merge from them can bring f-strings, `yield from` or
-# PEP 484 annotations into shared common/ libraries - SyntaxErrors on CL7 that
-# nothing else here would catch until an upgrade failed on a customer box.
+# lint-spec-platforms guards what upstream's builds differ from ours in. Every
+# build copies its target's deps RPMs from the tarball `make source`
+# assembles, and the 0.24.0 merge resolved the Makefile to bundle no el9 deps,
+# which failed the CL8 build. It also rejects any file under the tree
+# leapp-data-cloudlinux installs into (the CloudLinux target GPG keys): a
+# second copy here made the two RPMs uninstallable together.
 #
-# lint-spec-platforms guards the builds upstream does not have. rpm 4.11 on
-# el7 predates boolean dependencies, so one `Requires: (a if b)` reaching the
-# el7 parse stops rpmbuild before a source RPM exists; and every build copies
-# its target's deps RPMs from the tarball `make source` assembles. The 0.24.0
-# merge broke both: the fapolicyd subpackage stopped the CL7 build, and the
-# resolved Makefile bundled no el9 deps, which failed the CL8 one. It also
-# rejects any file under the tree leapp-data-cloudlinux installs into (the
-# CloudLinux target GPG keys): a second copy here made the two RPMs
-# uninstallable together.
+# The CloudLinux 7 to 8 upgrade is built from the cloudlinux-el7toel8 branch,
+# so nothing here guards python2.7 or rpm 4.11 any more.
 #
 # Broader fixes (running the full upstream test+lint matrix on cloudlinux
 # PRs) are tracked separately.
@@ -68,24 +61,8 @@ jobs:
       - name: make lint-spec-release
         run: make lint-spec-release
 
-  lint-py27-syntax:
-    name: Reject python3-only syntax in el7-shipped source
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # parso 0.7.1 is the last release carrying the python2.7 grammar, so the
-      # pin is load-bearing rather than cautious - 0.8.x raises
-      # NotImplementedError for version='2.7' and the check would not run.
-      - name: Install parso
-        run: python3 -m pip install 'parso==0.7.1'
-
-      - name: make lint-py27-syntax
-        run: make lint-py27-syntax
-
   lint-spec-platforms:
-    name: Spec must build on every platform it ships for
+    name: Every build's deps are bundled, nothing is shipped twice
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

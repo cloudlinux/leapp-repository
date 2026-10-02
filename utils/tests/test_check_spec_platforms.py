@@ -18,74 +18,6 @@ def _load():
 check = _load()
 
 
-def _findings(text):
-    return check.boolean_dependencies(text.splitlines(), rhel=7)
-
-
-def test_the_shipped_spec_has_no_boolean_dependency_on_el7():
-    # rpm 4.11 on CL7 stops at the first one, before a source RPM exists.
-    with open(_SPEC) as fp:
-        assert check.boolean_dependencies(fp.read().splitlines(), rhel=7) == []
-
-
-def test_a_boolean_dependency_at_top_level_is_found():
-    found = _findings('Name: x\nRequires: (a if b)\n')
-    assert [line for _n, line in found] == ['Requires: (a if b)']
-
-
-def test_one_after_a_comma_is_found_too():
-    assert len(_findings('Requires: foo, (a if b)\n')) == 1
-
-
-@pytest.mark.parametrize('tag', ['Recommends', 'Suggests', 'Supplements', 'Conflicts',
-                                 'BuildRequires', 'Requires(post)'])
-def test_every_dependency_tag_counts(tag):
-    assert len(_findings('{0}: (a or b)\n'.format(tag))) == 1
-
-
-def test_a_plain_dependency_is_not_one():
-    assert _findings('Requires: leapp-framework >= 6.0, leapp-framework < 7\n') == []
-
-
-def test_a_branch_el7_does_not_take_is_skipped():
-    text = ('%if 0%{?rhel} != 7\nRequires: (a if b)\n%endif\n'
-            '%if 0%{?rhel} == 7\nRequires: plain\n%else\nRequires: (c if d)\n%endif\n')
-    assert _findings(text) == []
-
-
-def test_the_branch_el7_takes_is_checked():
-    text = '%if 0%{?rhel} == 7\nRequires: (a if b)\n%else\nRequires: plain\n%endif\n'
-    assert len(_findings(text)) == 1
-
-
-def test_compound_conditions_evaluate():
-    text = '%if 0%{?rhel} && 0%{?rhel} == 7\nRequires: (a if b)\n%endif\n'
-    assert len(_findings(text)) == 1
-
-
-def test_nesting_inside_a_skipped_branch_stays_skipped():
-    text = '%if 0%{?rhel} == 8\n%if 0%{?rhel}\nRequires: (a if b)\n%endif\n%endif\n'
-    assert _findings(text) == []
-
-
-def test_an_unknown_condition_el7_would_reach_is_an_error_not_a_guess():
-    with pytest.raises(check.UnknownCondition):
-        _findings('%if %{with foo}\nRequires: (a if b)\n%endif\n')
-
-
-def test_an_unknown_condition_inside_a_skipped_branch_is_not_evaluated():
-    assert _findings('%if 0%{?rhel} == 9\n%if %{with foo}\n%endif\n%endif\n') == []
-
-
-def test_the_changelog_is_not_parsed():
-    assert _findings('%changelog\n- Requires: (a if b) is now handled\n') == []
-
-
-def test_unbalanced_conditionals_are_an_error():
-    with pytest.raises(check.UnknownCondition):
-        _findings('%if 0%{?rhel} == 7\nRequires: x\n')
-
-
 _MAKEFILE = os.path.join(_HERE, '..', '..', 'Makefile')
 
 
@@ -117,7 +49,7 @@ _ROOT = os.path.join(_HERE, '..', '..')
 
 def test_the_tree_ships_no_file_leapp_data_installs():
     # Both RPMs owning one path with different content is a transaction check error:
-    # leapp-upgrade-el7toel8 and leapp-data-cloudlinux could not be installed together.
+    # leapp-upgrade and leapp-data-cloudlinux could not be installed together.
     assert check.files_leapp_data_owns(_ROOT) == []
 
 

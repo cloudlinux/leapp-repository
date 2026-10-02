@@ -30,12 +30,6 @@ else
 	TEST_PATHS:=commands repos/common $(SYSUPG_TEST_PATHS)
 endif
 
-# What the el7toel8 RPM actually ships, and therefore what has to stay
-# parseable by python2.7 - the framework runs under python2.7 on a CL7 source
-# system. The spec drops el8toel9 and el9toel10 from that build, so those two
-# are free to use python3-only syntax and are deliberately not listed here.
-PY27_PATHS=commands $(_SYSUPG_REPOS)/common $(_SYSUPG_REPOS)/el7toel8 $(_SYSUPG_REPOS)/cloudlinux $(_SYSUPG_REPOS)/wp-toolkit
-
 # Several commands can take arbitrary user supplied arguments from environment
 # variables as well:
 PYTEST_ARGS ?=
@@ -154,7 +148,6 @@ help:
 	@echo "  install-deps-fedora         create python virtualenv and install there"
 	@echo "                              leapp-repository with dependencies for Fedora OS"
 	@echo "  lint                        lint source code"
-	@echo "  lint-py27-syntax            reject python3-only syntax in el7-shipped code"
 	@echo "  lint_container              run lint in container"
 	@echo "  lint_container_all          run lint in all available containers"
 	@echo "                              see test_container for options"
@@ -424,24 +417,14 @@ lint-spec-release:
 	@echo "--- Checking the build ships the release the spec declares ---"
 	@python3 utils/check-spec-release.py
 
-# Upstream's test matrix bottoms out at python3.6, so f-strings, `yield from` and
-# PEP 484 annotations reach shared common/ libraries on every merge from them and
-# are SyntaxErrors on CL7. Standalone for the same reasons as lint-non-ascii, and
-# one source of truth for both `make lint` and the lint-cloudlinux GitHub Action.
-# Needs parso 0.7.1; the script prints the exact install command if it is missing.
-lint-py27-syntax:
-	@echo "--- Checking python2.7 parseability of what the el7toel8 RPM ships ---"
-	@python3 utils/check-py27-syntax.py $(PY27_PATHS)
-
-# Upstream builds for el8 and el9 only, so a merge from them can break the el7 build
-# or the deps bundle for a build they do not have - 0.24.0 did both - and nothing
-# here may also be shipped by leapp-data-cloudlinux. Pure stdlib python3; one source
-# of truth for `make lint` and CI.
+# A merge from upstream can drop the deps bundle for a build of ours - 0.24.0 did -
+# and nothing here may also be shipped by leapp-data-cloudlinux. Pure stdlib
+# python3; one source of truth for `make lint` and CI.
 lint-spec-platforms:
-	@echo "--- Checking the spec builds on every platform it ships for ---"
+	@echo "--- Checking every build's deps are bundled and nothing is shipped twice ---"
 	@python3 utils/check-spec-platforms.py
 
-lint: lint-non-ascii lint-spec-release lint-py27-syntax lint-spec-platforms _warn_misssing_repos_if_using_actor
+lint: lint-non-ascii lint-spec-release lint-spec-platforms _warn_misssing_repos_if_using_actor
 	. $(VENVNAME)/bin/activate; \
 	echo "--- Linting ... ---" && \
 	SEARCH_PATH="$(TEST_PATHS)" && \
@@ -661,5 +644,5 @@ _warn_misssing_repos_if_using_actor:
 		exit 1; \
 	fi
 
-.PHONY: help build clean prepare sync-sources source srpm copr_build _build_local build_container print_release register install-deps install-deps-fedora  lint lint-non-ascii lint-spec-release lint-py27-syntax lint-spec-platforms test_no_lint test dashboard_data fast_lint _warn_misssing_repos_if_using_actor
+.PHONY: help build clean prepare sync-sources source srpm copr_build _build_local build_container print_release register install-deps install-deps-fedora  lint lint-non-ascii lint-spec-release lint-spec-platforms test_no_lint test dashboard_data fast_lint _warn_misssing_repos_if_using_actor
 .PHONY: test_container test_container_no_lint test_container_all test_container_all_no_lint clean_containers _build_container_image _test_container_ipu dev_test_no_lint

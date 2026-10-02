@@ -49,14 +49,14 @@ version - kills `pes_events_scanner` with *"Versions have to be in the form of
 
 ## 5. python3-only syntax entered shared code
 
-`system_upgrade/common` is shipped on el7, where leapp runs on python2.7. The
-merge brought `yield from` and f-strings into files el7 loads. There was no gate;
-there is now (`make lint-py27-syntax`, parso 0.7.1 grammar), because this is
-invisible until an el7 box runs the actor.
+`system_upgrade/common` was shipped on el7, where leapp runs on python2.7. The
+merge brought `yield from` and f-strings into files el7 loads. Rather than repair
+that on every merge, CL7 to CL8 moved to the `cloudlinux-el7toel8` branch and
+`cloudlinux` stopped building for el7; see `reference/el7toel8-retired-upstream.md`.
 
 ## What to do on the next rebase
 
-Run the CloudLinux actor suites and a real CloudLinux 7 to 8 preupgrade, not only
-the newest path. Four of the five above affect 7 to 8 and 8 to 9 as much as 9 to
-10, and three produced no report at all - the actor simply crashed, or the
+Run the CloudLinux actor suites and a real CloudLinux 8 to 9 preupgrade, not only
+the newest path. Most of the above affect 8 to 9 as much as 9 to 10, and three
+produced no report at all - the actor simply crashed, or the
 upgrade completed having quietly removed things.

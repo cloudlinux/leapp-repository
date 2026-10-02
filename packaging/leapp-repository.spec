@@ -382,8 +382,8 @@ fi
 - CLOS-7025: Improve CageFS handling after the upgrade
 - CLOS-7051: Add the el9toel10 repository, the basis of the CloudLinux 9 to 10 upgrade
 - Upgrade CloudLinux 8 to CloudLinux 9.8, the current CloudLinux 9 release, instead of 9.4, whose package channel is outdated and lacks parts of the current CloudLinux stack, such as lve-stats3
-- Keep the el7toel8 repository, which upstream retired: CloudLinux 7 to 8 is still shipped
-- Require leapp-framework 6.2 on el8 and el9, and keep 6.0 on el7, where the framework is python2-leapp
+- Built for CloudLinux 8 and 9 only: CloudLinux 7 to 8 upgrades stay on the 0.20.0 series, which is maintained separately
+- Require leapp-framework 6.2
 - Repository mapping data must now be in format 1.3.0, which adds a required 'distro' field to every repository entry
 - Require leapp-data-cloudlinux 0.3-10, which carries the repository data and the target GPG keys this version reads
 - CLOS-7051: Install the target system-release alongside cloudlinux-release; from CloudLinux 10 the release package requires system-release(releasever) rather than providing it, and the provider is in neither the source system nor the CloudLinux 10 channel
@@ -399,8 +399,7 @@ fi
 - CLOS-7051: Stop acting on CLN and control panel assumptions CloudLinux 10 does not hold
 - Import the GPG keys shipped for the target major version rather than an unversioned AlmaLinux URL, which serves the AlmaLinux 8 keys and no others
 - Query the target repositories the way the upgrade transaction reads them: for the target minor version, rather than the bare CloudLinux 9 channel, which is frozen with 9.0-era content and lacks lve-stats3, and with skip_if_unavailable, without which one stale repository file on the source made every query fail, silently disabling the kernel-minor check and misreporting the essential-package check
-- Gate the sources shipped on el7 against python3-only syntax, which the 0.24.0 merge introduced into shared code
-- Keep the leapp CLI working on leapp-framework 6.0 - the newest el7 has, and the newest CloudLinux publishes for el8 - where it would not load, because of an aliases= option only 6.2 understands, and 'leapp preupgrade' and 'leapp upgrade' failed at once, because 6.0 passes an unused --enable-experimental-feature as nothing rather than an empty list
+- Keep the leapp CLI working on leapp-framework 6.0 - the newest CloudLinux publishes for el8 - where it would not load, because of an aliases= option only 6.2 understands, and 'leapp preupgrade' and 'leapp upgrade' failed at once, because 6.0 passes an unused --enable-experimental-feature as nothing rather than an empty list
 
 * Wed Sep 02 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.20.0-12.cloudlinux
 - CLOS-6911: Remove SysV runlevel links left over from the old system where the new one provides a real systemd service, which otherwise started the service outside its own unit - MariaDB was affected on servers using CloudLinux MySQL
