@@ -203,7 +203,7 @@ def ask_to_continue():
     """
 
     ask_on_os = ['cloudlinux']
-    os_id = command_utils.get_os_release_id('/etc/os-release')
+    os_id = command_utils.get_source_distro_id()
 
     if os_id not in ask_on_os:
         return True
