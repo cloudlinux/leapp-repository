@@ -15,7 +15,7 @@ def _setup(monkeypatch, tmp_path, backed_up):
     container.mkdir()
     files = [str(container / name) for name in ('dbuser-map', 've.cfg', 'mysql-governor.xml')]
     for name in backed_up:
-        (backup_dir / name).write_text(u'backed up ' + name)
+        (backup_dir / name).write_text('backed up ' + name)
 
     monkeypatch.setattr(backup, 'BACKUP_DIR', str(backup_dir))
     monkeypatch.setattr(backup, 'CLSQL_BACKUP_FILES', files)
@@ -30,7 +30,7 @@ def test_backed_up_files_are_restored(monkeypatch, tmp_path):
 
     restoremysqldata.process()
 
-    assert (container / 've.cfg').read_text() == u'backed up ve.cfg'
+    assert (container / 've.cfg').read_text() == 'backed up ve.cfg'
     assert reporting.create_report.called == 0
 
 
@@ -45,7 +45,7 @@ def test_a_file_the_source_never_had_is_not_reported_as_a_restore_failure(monkey
     assert reporting.create_report.called == 0
     assert api.current_logger.errmsg == []
     assert not os.path.exists(str(container / 'dbuser-map'))
-    assert (container / 've.cfg').read_text() == u'backed up ve.cfg'
+    assert (container / 've.cfg').read_text() == 'backed up ve.cfg'
 
 
 def test_a_backup_that_cannot_be_restored_is_reported(monkeypatch, tmp_path):
