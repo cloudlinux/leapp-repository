@@ -300,6 +300,7 @@ done;
 %changelog
 * Wed Sep 09 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.20.0-13.cloudlinux
 - CLOS-7025: Fix CageFS users no longer entering the cage through 'su' after the upgrade, by reinstalling the CageFS hooks on the first boot: they cannot be installed from inside the upgrade transaction, where cagefsctl is unable to run
+- CLOS-7881: Fix EPEL being removed from the system by the upgrade when its repository file had been edited, even only to enable or disable a repository: the target version's repository files are now put in place keeping each repository enabled or disabled as before, and an EPEL release package the upgrade did not update is reported with the command that installs the right one, instead of being erased and reinstalled from the network, which the upgrade environment does not have
 
 * Wed Sep 02 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.20.0-12.cloudlinux
 - CLOS-6911: Remove SysV runlevel links left over from the old system where the new one provides a real systemd service, which otherwise started the service outside its own unit - MariaDB was affected on servers using CloudLinux MySQL
