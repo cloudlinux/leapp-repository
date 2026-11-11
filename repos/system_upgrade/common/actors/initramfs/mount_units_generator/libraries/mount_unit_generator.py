@@ -196,6 +196,10 @@ def _fix_symlinks_in_dir(dir_containing_mount_units, target_dir):
 
         unit_full_path = os.path.join(dir_containing_mount_units, unit_file)
         unit_properties = parse_unit(unit_full_path)
+        if 'noauto' in unit_properties.get('Options', tuple()):
+            # Not mounted at boot by fstab's own definition, so systemd-fstab-generator
+            # links it into no target; neither may we.
+            continue
         is_nofail = 'nofail' in unit_properties.get('Options', tuple())
         is_pseudo_fs = unit_properties.get('Type') in PSEUDO_FS_TYPES
         if (is_nofail or is_pseudo_fs) and will_units_be_required:
