@@ -1175,11 +1175,37 @@ def _get_distro_available_repoids(context, indata):
               Exception: On CS8->CS9 and AL8->AL9 there are no distro-provided
               repoids as the repofile layout and urls are different
     Conversions: Only custom repos - no distro repoids (all distros)
+    Relocated reposdir: the distro repofiles are installed into
+              /etc/yum.repos.d, which such a host does not read, so none are
+              found. The basic repositories must then come from the custom
+              ones - gather_target_repositories() checks for them there.
 
     :return: A set of repoids provided by distribution
     :rtype: set[str]
     """
     distro_repoids = distro.get_target_distro_repoids(context)
+
+    if _distro_base_repos_required():
+        if not distro_repoids and not _distro_repofiles_are_read():
+            api.current_logger().info(
+                'The distribution repository files are not read on this system: its reposdir does not'
+                ' include {}. Expecting the basic repositories among the custom target repositories.'
+                .format(DEFAULT_REPOFILE_DIR)
+            )
+        else:
+            _inhibit_if_no_base_repos(distro_repoids)
+
+    if indata and indata.rhui_info:
+        rhui_repoids = _get_rhui_available_repoids(context, indata.rhui_info)
+        distro_repoids.extend(rhui_repoids)
+
+    return set(distro_repoids)
+
+
+def _distro_base_repos_required():
+    """
+    Whether the distribution has to provide the basic (BaseOS, AppStream) repositories.
+    """
     target_distro = get_target_distro_id()
     rhel_and_rhsm = target_distro == 'rhel' and not rhsm.skip_rhsm()
     is_source_cs8 = (
@@ -1188,20 +1214,12 @@ def _get_distro_available_repoids(context, indata):
     is_source_almalinux8 = (
         get_source_distro_id() == "almalinux" and get_source_major_version() == '8'
     )
-
-    if (
+    return (
         not is_conversion()  # conversions only work with custom repos
         and not (is_source_cs8 # there are no distro_repoids on CS8->CS9
         or is_source_almalinux8)  # there are no distro_repoids on AL8->AL9
         and (target_distro != "rhel" or rhel_and_rhsm)
-    ):
-        _inhibit_if_no_base_repos(distro_repoids)
-
-    if indata and indata.rhui_info:
-        rhui_repoids = _get_rhui_available_repoids(context, indata.rhui_info)
-        distro_repoids.extend(rhui_repoids)
-
-    return set(distro_repoids)
+    )
 
 
 @suppress_deprecation(RHELTargetRepository)  # member of TargetRepositories
@@ -1329,6 +1347,10 @@ def gather_target_repositories(context, indata):
             ))
         ])
         raise StopActorExecution()
+    if not distro_repoids and _distro_base_repos_required() and not _distro_repofiles_are_read():
+        # See _get_distro_available_repoids(): here the basic repositories have
+        # to be among the custom ones, e.g. derived from a host's own mirror.
+        _inhibit_if_no_base_repos([repoid.lower() for repoid in target_repoids])
     return target_repoids
 
 
@@ -1350,6 +1372,13 @@ def _get_container_repofile_dir():
         return DEFAULT_REPOFILE_DIR
     # get_repodirs() builds its result from a set, so sort for a stable pick.
     return sorted(repodirs)[0]
+
+
+def _distro_repofiles_are_read():
+    """
+    Whether dnf reads the directory the distribution repofiles are installed into.
+    """
+    return _get_container_repofile_dir() == DEFAULT_REPOFILE_DIR
 
 
 def _install_custom_repofiles(context, custom_repofiles):

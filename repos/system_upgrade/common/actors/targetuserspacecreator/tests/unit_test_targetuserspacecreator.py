@@ -1258,6 +1258,74 @@ def test__get_distro_available_repoids_nobaserepos_inhibit(
         assert reporting.Groups.INHIBITOR in report["groups"]
 
 
+def _mock_upgrade_without_distro_repoids(monkeypatch, repodirs):
+    monkeypatch.setattr(
+        userspacegen.api,
+        "current_actor",
+        CurrentActorMocked(src_distro="cloudlinux", dst_distro="cloudlinux", src_ver="8.10", dst_ver="9.8"),
+    )
+    monkeypatch.setattr(userspacegen.api.current_actor(), 'produce', produce_mocked())
+    monkeypatch.setattr(reporting, "create_report", create_report_mocked())
+    monkeypatch.setattr(rhsm, 'skip_rhsm', lambda: True)
+    monkeypatch.setattr(distro, 'get_target_distro_repoids', lambda ctx: [])
+    monkeypatch.setattr(repofileutils, 'get_repodirs', lambda: list(repodirs))
+
+
+def test__get_distro_available_repoids_relocated_reposdir_does_not_inhibit(monkeypatch):
+    """
+    The target release package installs the distribution repofiles into
+    /etc/yum.repos.d. On a host whose reposdir leaves that directory out they
+    cannot be active, so their absence is the host's own configuration and the
+    basic-repository check belongs to the custom repositories instead - see
+    gather_target_repositories.
+    """
+    _mock_upgrade_without_distro_repoids(monkeypatch, ['/etc/yum.repos.local.d'])
+    indata = testInData(_PACKAGES_MSGS, None, None, _XFS_MSG, _STORAGEINFO_MSG, None)
+
+    assert userspacegen._get_distro_available_repoids(None, indata) == set()
+    assert not reporting.create_report.called
+
+
+def test__get_distro_available_repoids_default_reposdir_still_inhibits(monkeypatch):
+    _mock_upgrade_without_distro_repoids(monkeypatch, ['/etc/yum.repos.d'])
+    indata = testInData(_PACKAGES_MSGS, None, None, _XFS_MSG, _STORAGEINFO_MSG, None)
+
+    with pytest.raises(StopActorExecution):
+        userspacegen._get_distro_available_repoids(None, indata)
+    assert reporting.create_report.called == 1
+    assert reporting.create_report.reports[0]['title'] == 'Cannot find required basic RHEL target repositories.'
+
+
+@pytest.mark.parametrize(
+    "custom_repoids, inhibited",
+    (
+        # What derive_internal_mirror_repos produces from a host on its own mirror.
+        (['almalinux-BaseOS-9', 'almalinux-AppStream-9', 'cloudlinux-os-9'], False),
+        (['cloudlinux-os-9'], True),
+        (['almalinux-BaseOS-9', 'cloudlinux-os-9'], True),
+        (['almalinux-AppStream-9', 'cloudlinux-os-9'], True),
+    ),
+)
+@suppress_deprecation(models.RHELTargetRepository)
+def test_gather_target_repositories_relocated_reposdir_checks_custom_repos(monkeypatch, custom_repoids, inhibited):
+    _mock_upgrade_without_distro_repoids(monkeypatch, ['/etc/yum.repos.local.d'])
+    monkeypatch.setattr(userspacegen, '_get_all_available_repoids', lambda ctx: set(custom_repoids))
+    monkeypatch.setattr(userspacegen.api, 'consume', lambda x: iter([models.TargetRepositories(
+        rhel_repos=[],
+        distro_repos=[],
+        custom_repos=[models.CustomTargetRepository(repoid=repoid) for repoid in custom_repoids])]))
+    indata = testInData(_PACKAGES_MSGS, None, None, _XFS_MSG, _STORAGEINFO_MSG, None)
+
+    if inhibited:
+        with pytest.raises(StopActorExecution):
+            userspacegen.gather_target_repositories(None, indata)
+        assert reporting.create_report.called == 1
+        assert reporting.create_report.reports[0]['title'] == 'Cannot find required basic RHEL target repositories.'
+    else:
+        assert sorted(userspacegen.gather_target_repositories(None, indata)) == sorted(custom_repoids)
+        assert not reporting.create_report.called
+
+
 def mocked_consume_data():
     packages = {'dnf', 'dnf-command(config-manager)', 'pkgA', 'pkgB'}
     rhsm_info = _RHSMINFO_MSG
