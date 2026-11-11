@@ -83,6 +83,29 @@ prefers that path, because `apply_custom_dnf_conf` later *moves* that file onto
 the upgraded system (`run(["mv", CUSTOM_DNF_CONF_PATH, "/etc/dnf/dnf.conf"])`),
 silently rewriting the host's own configuration after the upgrade.
 
+## Second site: the distribution-repository check
+
+Newer upstream (0.24) checks that the target distribution itself provides
+BaseOS and AppStream: `distro.get_distro_repoids()` takes the repository files
+dnf finds - from the configured `reposdir` - and keeps only those at the
+distribution's fixed paths (`/etc/yum.repos.d/centos.repo`,
+`/etc/yum.repos.d/almalinux-baseos.repo`, ...). On a relocated-reposdir host
+the two sets never meet, no distribution repoid is found, and
+`_inhibit_if_no_base_repos()` stops the upgrade with *"Cannot find required
+basic RHEL target repositories"* - after the fix above has made every other
+repository visible.
+
+The distribution repofiles are installed into `/etc/yum.repos.d` by the target
+release package, and such a host does not read that directory by its own
+configuration, so they cannot be active there. The fix
+(`_get_distro_available_repoids()` / `gather_target_repositories()`) does not
+inhibit on the empty distribution set when `/etc/yum.repos.d` is not among the
+configured directories, and instead requires a BaseOS and an AppStream
+repository (case-insensitively) among the custom target repositories that are
+actually available. The check keeps its purpose - catching an upgrade that has
+no base repositories at all - and every other system takes the old path,
+unchanged.
+
 ## Open question
 
 The backup/restore dance in `_prep_repository_access()` exists to preserve
@@ -90,10 +113,12 @@ repository files owned by RPMs. Those are installed to `/etc/yum.repos.d` by
 the packages themselves regardless of `reposdir`, so pointing the dance at the
 configured directory means the target distro's stock repository files are
 neither preserved nor active on a custom-reposdir system. Harmless for the
-upgrade transaction, which drives everything through explicit `--enablerepo`,
+upgrade transaction, which drives everything through explicit `--enablerepo`
+and, after the second fix, draws its base repositories from the custom ones -
 but it leaves such a system without the new distro's stock repository
-definitions in an active location. Whether those should be copied across is
-unresolved.
+definitions in an active location after the upgrade. Whether those should be
+copied across is unresolved; the operator of such a host manages that
+directory on purpose.
 
 ## Verification
 
