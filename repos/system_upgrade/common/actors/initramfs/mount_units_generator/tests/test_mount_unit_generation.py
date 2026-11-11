@@ -477,3 +477,33 @@ def test_remove_units_removes_parent_without_children(monkeypatch, leapp_tmpdir)
     assert not os.path.exists(
         os.path.join(leapp_tmpdir, 'local-fs.target.wants', 'systemd-remount-fs.service')
     )
+
+
+def test_fix_symlinks_in_targets_never_links_noauto_mounts(monkeypatch, leapp_tmpdir):
+    """
+    noauto in fstab means "do not mount at boot": systemd-fstab-generator writes
+    such a unit but links it into no target. Regenerating the links must not
+    add it either, or the upgrade initramfs requires the mount and drops to the
+    emergency shell when it fails. cPanel's securetmp is one such entry -
+    `/usr/tmpDSK /tmp ext4 defaults,noauto`, a plain file that only mounts
+    through a loop device.
+    """
+    monkeypatch.setattr(api, 'current_logger', logger_mocked())
+
+    units = {
+        'sysroot-home.mount': ('/dev/sda3', '/sysroot/home', 'xfs', 'defaults'),
+        'sysroot-tmp.mount': ('/usr/tmpDSK', '/sysroot/tmp', 'ext4', 'defaults,noauto'),
+    }
+    for unit_name, (what, where, fs_type, options) in units.items():
+        with open(os.path.join(leapp_tmpdir, unit_name), 'w') as unit_file:
+            unit_file.write(
+                '[Unit]\nBefore=local-fs.target\n\n[Mount]\n'
+                'What={}\nWhere={}\nType={}\nOptions={}\n'.format(what, where, fs_type, options)
+            )
+    for target_dir in ('local-fs.target.requires', 'local-fs.target.wants'):
+        os.mkdir(os.path.join(leapp_tmpdir, target_dir))
+
+    mount_unit_generator.fix_symlinks_in_targets(leapp_tmpdir)
+
+    for target_dir in ('local-fs.target.requires', 'local-fs.target.wants'):
+        assert os.listdir(os.path.join(leapp_tmpdir, target_dir)) == ['sysroot-home.mount']
