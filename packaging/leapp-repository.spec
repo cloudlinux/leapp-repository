@@ -407,6 +407,8 @@ fi
 - CLOS-7051: Stop acting on CLN and control panel assumptions CloudLinux 10 does not hold
 - Import the GPG keys shipped for the target major version rather than an unversioned AlmaLinux URL, which serves the AlmaLinux 8 keys and no others
 - Query the target repositories from inside the target userspace, as the upgrade transaction does: the CloudLinux mirrorlist answers by the client's own release, so a query made by the source system's dnf read the CloudLinux 8 channel instead of the target's. Pass skip_if_unavailable to those queries too, without which one stale repository file on the source made every query fail, silently disabling the kernel-minor check and misreporting the essential-package check
+- CLOS-4690: Fix upgrades of servers that keep their repository files outside /etc/yum.repos.d, which stopped with "There are no enabled target repositories" or "Cannot find required basic RHEL target repositories"
+- CLOS-4690: Upgrade servers that install from their own mirror of the CloudLinux and AlmaLinux repositories from that mirror, deriving the target repositories from the server's own repository files
 
 * Wed Sep 02 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.20.0-12.cloudlinux
 - CLOS-6911: Remove SysV runlevel links left over from the old system where the new one provides a real systemd service, which otherwise started the service outside its own unit - MariaDB was affected on servers using CloudLinux MySQL
