@@ -10,14 +10,18 @@ def get_cldeploy_repo_files(repo_file_paths):
     Get the list of cldeploy repository files.
 
     Keep in mind that the incoming repository file paths are absolute paths to the repository files.
+
+    cldeploy repofiles are named ``repo.cloudlinux.com_*``; we match on the
+    basename rather than a fixed ``/etc/yum.repos.d/`` prefix so this works
+    regardless of the directory the file lives in. A system may relocate its
+    repositories via ``reposdir`` (e.g. /etc/yum.repos.local.d),
+    and RepositoriesFacts already reports the real paths.
     """
-    # Base path for repo files
-    repo_base_path = "/etc/yum.repos.d/"
     # Name prefix for cldeploy repo files
     repo_prefix = "repo.cloudlinux.com_"
-    expected_startswith = repo_base_path + repo_prefix
 
-    return [repo_file for repo_file in repo_file_paths if repo_file.startswith(expected_startswith)]
+    return [repo_file for repo_file in repo_file_paths
+            if os.path.basename(repo_file).startswith(repo_prefix)]
 
 
 def create_report(cldeploy_repo_files):

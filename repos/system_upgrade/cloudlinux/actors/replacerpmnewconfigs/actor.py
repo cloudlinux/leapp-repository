@@ -8,8 +8,8 @@ from leapp import reporting
 from leapp.reporting import Report
 from leapp.libraries.common.cllaunch import run_on_cloudlinux
 from leapp.libraries.common.backup import backup_and_remove, LEAPP_BACKUP_SUFFIX
+from leapp.libraries.common import cl_repofileutils
 
-REPO_DIR = '/etc/yum.repos.d'
 # These markers are used to identify which repository files should be directly replaced with new versions.
 REPO_DELETE_MARKERS = ['cloudlinux', 'imunify']
 # These markers are used to identify which repository files should be replaced with new versions and backed up.
@@ -33,36 +33,40 @@ class ReplaceRpmnewConfigs(Actor):
         deleted_repofiles = []
         renamed_repofiles = []
 
-        for rpmnew_filename in os.listdir(REPO_DIR):
-            if any(mark in rpmnew_filename for mark in REPO_DELETE_MARKERS) and rpmnew_filename.endswith(RPMNEW):
-                main_reponame = rpmnew_filename[:-len(RPMNEW)]
-                main_file_path = os.path.join(REPO_DIR, main_reponame)
-                rpmnew_file_path = os.path.join(REPO_DIR, rpmnew_filename)
+        for repo_dir in cl_repofileutils.get_repo_dirs():
+            if not os.path.isdir(repo_dir):
+                continue
 
-                os.unlink(main_file_path)
-                os.rename(rpmnew_file_path, main_file_path)
-                deleted_repofiles.append(main_reponame)
-                self.log.debug('Yum repofile replaced: {}'.format(main_file_path))
+            for rpmnew_filename in os.listdir(repo_dir):
+                if any(mark in rpmnew_filename for mark in REPO_DELETE_MARKERS) and rpmnew_filename.endswith(RPMNEW):
+                    main_reponame = rpmnew_filename[:-len(RPMNEW)]
+                    main_file_path = os.path.join(repo_dir, main_reponame)
+                    rpmnew_file_path = os.path.join(repo_dir, rpmnew_filename)
 
-            if any(mark in rpmnew_filename for mark in REPO_BACKUP_MARKERS) and rpmnew_filename.endswith(RPMNEW):
-                main_reponame = rpmnew_filename[:-len(RPMNEW)]
-                main_file_path = os.path.join(REPO_DIR, main_reponame)
-                rpmnew_file_path = os.path.join(REPO_DIR, rpmnew_filename)
+                    os.unlink(main_file_path)
+                    os.rename(rpmnew_file_path, main_file_path)
+                    deleted_repofiles.append(main_reponame)
+                    self.log.debug('Yum repofile replaced: {}'.format(main_file_path))
 
-                backup_and_remove(main_file_path)
-                os.rename(rpmnew_file_path, main_file_path)
-                renamed_repofiles.append(main_reponame)
-                self.log.debug('Yum repofile replaced with backup: {}'.format(main_file_path))
+                if any(mark in rpmnew_filename for mark in REPO_BACKUP_MARKERS) and rpmnew_filename.endswith(RPMNEW):
+                    main_reponame = rpmnew_filename[:-len(RPMNEW)]
+                    main_file_path = os.path.join(repo_dir, main_reponame)
+                    rpmnew_file_path = os.path.join(repo_dir, rpmnew_filename)
 
-        # Disable any old repositories.
-        for repofile_name in os.listdir(REPO_DIR):
-            if LEAPP_BACKUP_SUFFIX in repofile_name:
-                repofile_path = os.path.join(REPO_DIR, repofile_name)
-                for line in fileinput.input(repofile_path, inplace=True):
-                    if line.startswith('enabled'):
-                        print("enabled = 0")
-                    else:
-                        print(line, end='')
+                    backup_and_remove(main_file_path)
+                    os.rename(rpmnew_file_path, main_file_path)
+                    renamed_repofiles.append(main_reponame)
+                    self.log.debug('Yum repofile replaced with backup: {}'.format(main_file_path))
+
+            # Disable any old repositories.
+            for repofile_name in os.listdir(repo_dir):
+                if LEAPP_BACKUP_SUFFIX in repofile_name:
+                    repofile_path = os.path.join(repo_dir, repofile_name)
+                    for line in fileinput.input(repofile_path, inplace=True):
+                        if line.startswith('enabled'):
+                            print("enabled = 0")
+                        else:
+                            print(line, end='')
 
         if renamed_repofiles or deleted_repofiles:
             deleted_string = '\n'.join(['{}'.format(repofile_name) for repofile_name in deleted_repofiles])
