@@ -170,24 +170,28 @@ def test_tasks_produced_reports_created(monkeypatch):
     services_source = [
         SystemdServiceFile(name="rsyncd.service", state="enabled"),
         SystemdServiceFile(name="test.service", state="enabled"),
+        SystemdServiceFile(name="newly_enabled.service", state="disabled"),
     ]
     service_info_source = SystemdServicesInfoSource(service_files=services_source)
 
     presets_source = [
         SystemdServicePreset(service="rsyncd.service", state="enable"),
         SystemdServicePreset(service="test.service", state="enable"),
+        SystemdServicePreset(service="newly_enabled.service", state="disable"),
     ]
     preset_info_source = SystemdServicesPresetInfoSource(presets=presets_source)
 
     services_target = [
         SystemdServiceFile(name="rsyncd.service", state="disabled"),
         SystemdServiceFile(name="test.service", state="enabled"),
+        SystemdServiceFile(name="newly_enabled.service", state="enabled"),
     ]
     service_info_target = SystemdServicesInfoTarget(service_files=services_target)
 
     presets_target = [
         SystemdServicePreset(service="rsyncd.service", state="enable"),
         SystemdServicePreset(service="test.service", state="enable"),
+        SystemdServicePreset(service="newly_enabled.service", state="enable"),
     ]
     preset_info_target = SystemdServicesPresetInfoTarget(presets=presets_target)
 
@@ -272,7 +276,8 @@ def test_new_target_unit_enabled_by_preset(monkeypatch):
             ),
             True,
         ),
-        (None, False),
+        (SystemdServicesTasks(), False),
+        (SystemdServicesTasks(to_enable=[], to_disable=["some.service"]), False),
     ),
 )
 def test_report_kept_enabled(monkeypatch, tasks, expect_extended_summary):
@@ -286,12 +291,10 @@ def test_report_kept_enabled(monkeypatch, tasks, expect_extended_summary):
         " upgraded system and Leapp attempted to enable them"
     )
 
-    assert created_reports.called
+    assert created_reports.called == 1
     if expect_extended_summary:
         assert extended_summary_str in created_reports.report_fields["summary"]
-        assert all(
-            [s in created_reports.report_fields["summary"] for s in tasks.to_enable]
-        )
+        all(s in created_reports.report_fields['summary'] for s in tasks.to_enable)
     else:
         assert extended_summary_str not in created_reports.report_fields["summary"]
 
@@ -314,15 +317,24 @@ def test_get_newly_enabled():
     assert newly_enabled == ["test.service"]
 
 
-def test_report_newly_enabled(monkeypatch):
+@pytest.mark.parametrize(
+    "newly_enabled, should_report",
+    [
+        (["test.service", "other.service"], True),
+        ([], False),
+    ]
+)
+def test_report_newly_enabled(monkeypatch, newly_enabled, should_report):
     created_reports = create_report_mocked()
     monkeypatch.setattr(reporting, "create_report", created_reports)
 
-    newly_enabled = ["test.service", "other.service"]
     transitionsystemdservicesstates._report_newly_enabled(newly_enabled)
 
-    assert created_reports.called
-    assert all([s in created_reports.report_fields["summary"] for s in newly_enabled])
+    if should_report:
+        assert created_reports.called == 1
+        assert all(s in created_reports.report_fields["summary"] for s in newly_enabled)
+    else:
+        assert not created_reports.called
 
 
 @pytest.mark.parametrize(

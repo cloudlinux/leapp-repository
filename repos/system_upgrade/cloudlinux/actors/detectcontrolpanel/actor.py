@@ -6,14 +6,8 @@ from leapp.tags import ChecksPhaseTag, IPUWorkflowTag
 from leapp.exceptions import StopActorExecutionError
 
 from leapp.libraries.common.cllaunch import run_on_cloudlinux
-from leapp.libraries.common.detectcontrolpanel import (
-    NOPANEL_NAME,
-    UNKNOWN_NAME,
-    INTEGRATED_NAME,
-    CPANEL_NAME,
-    DIRECTADMIN_NAME,
-    PLESK_NAME
-)
+from leapp.libraries.common.config.version import get_target_major_version
+from leapp.libraries.common.detectcontrolpanel import panel_blocks_upgrade
 
 
 class DetectControlPanel(Actor):
@@ -32,25 +26,29 @@ class DetectControlPanel(Actor):
         if panel is None:
             raise StopActorExecutionError(message=("Missing information about the installed web panel."))
 
-        if panel.name in (CPANEL_NAME, DIRECTADMIN_NAME, PLESK_NAME):
-            self.log.debug('%s detected, upgrade proceeding' % panel.name)
-        elif panel.name == INTEGRATED_NAME or panel.name == UNKNOWN_NAME or panel.name == NOPANEL_NAME:
-            self.log.debug('Integrated/no panel detected, upgrade proceeding')
-        elif panel:
-            # Block the upgrade on any systems with a non-supported panel detected.
-            reporting.create_report(
-                [
-                    reporting.Title(
-                        "The upgrade process should not be run on systems with a control panel present."
-                    ),
-                    reporting.Summary(
-                        "Systems with a control panel present are not supported at the moment."
-                        " No control panels are currently included in the Leapp database, which"
-                        " makes loss of functionality after the upgrade extremely likely."
-                        " Detected panel: {}.".format(panel.name)
-                    ),
-                    reporting.Severity(reporting.Severity.HIGH),
-                    reporting.Groups([reporting.Groups.OS_FACTS]),
-                    reporting.Groups([reporting.Groups.INHIBITOR]),
-                ]
+        target_major = get_target_major_version()
+
+        if not panel_blocks_upgrade(panel.name, target_major):
+            self.log.debug(
+                '%s is supported for the upgrade to major version %s, upgrade proceeding',
+                panel.name, target_major
             )
+            return
+
+        reporting.create_report(
+            [
+                reporting.Title(
+                    "The installed control panel does not support the target system."
+                ),
+                reporting.Summary(
+                    "The upgrade cannot proceed on a system with {panel} installed,"
+                    " because {panel} does not support CloudLinux {major}."
+                    " Leapp carries no package or repository data for that combination,"
+                    " which makes loss of functionality after the upgrade extremely likely."
+                    .format(panel=panel.name, major=target_major)
+                ),
+                reporting.Severity(reporting.Severity.HIGH),
+                reporting.Groups([reporting.Groups.OS_FACTS]),
+                reporting.Groups([reporting.Groups.INHIBITOR]),
+            ]
+        )

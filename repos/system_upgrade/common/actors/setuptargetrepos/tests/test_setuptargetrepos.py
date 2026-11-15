@@ -1,6 +1,5 @@
 import pytest
 
-from leapp.libraries import stdlib
 from leapp.libraries.actor import setuptargetrepos
 from leapp.libraries.common.testutils import CurrentActorMocked, produce_mocked
 from leapp.libraries.stdlib import api
@@ -103,100 +102,129 @@ def test_repositories_setup_tasks(monkeypatch):
     assert rhel_repos[0].repoid == 'rhel-8-server-rpms'
 
 
-def test_repos_mapping(monkeypatch):
+@pytest.mark.parametrize('src_distro', ['rhel', 'centos', 'almalinux'])
+@pytest.mark.parametrize('dst_distro', ['rhel', 'centos', 'almalinux'])
+def test_repos_mapping_for_distro(monkeypatch, src_distro, dst_distro):
     """
     Tests whether actor correctly determines what repositories should be enabled on target based
     on the information about what repositories are enabled on the source system using
-    the RepositoriesMapping information.
+    the RepositoriesMapping information for a specific source and target distro pair.
     """
     repos_data = [
-        RepositoryData(repoid='rhel-7-server-rpms', name='RHEL 7 Server'),
-        RepositoryData(repoid='rhel-7-blacklisted-rpms', name='RHEL 7 Blacklisted')]
+        RepositoryData(repoid='{}-8-server-rpms'.format(src_distro), name='{} 8 Server'.format(src_distro)),
+        RepositoryData(repoid='{}-8-blacklisted-rpms'.format(src_distro), name='{} 8 Blacklisted'.format(src_distro))]
 
     repos_files = [RepositoryFile(file='/etc/yum.repos.d/redhat.repo', data=repos_data)]
     facts = RepositoriesFacts(repositories=repos_files)
     installed_rpms = InstalledRPM(
-        items=[mock_package('foreman', 'rhel-7-for-x86_64-satellite-extras-rpms'),
-               mock_package('foreman-proxy', 'nosuch-rhel-7-for-x86_64-satellite-extras-rpms')])
+        items=[mock_package('foreman', '{}-8-for-x86_64-satellite-extras-rpms'.format(src_distro)),
+               mock_package('foreman-proxy', 'nosuch-{}-8-for-x86_64-satellite-extras-rpms'.format(src_distro))])
 
     repomap = RepositoriesMapping(
-        mapping=[RepoMapEntry(source='rhel7-base', target=['rhel8-baseos', 'rhel8-appstream', 'rhel8-blacklist']),
-                 RepoMapEntry(source='rhel7-satellite-extras', target=['rhel8-satellite-extras'])],
+        mapping=[RepoMapEntry(source='{0}8-base'.format(src_distro),
+                              target=['{0}9-baseos'.format(dst_distro),
+                                      '{0}9-appstream'.format(dst_distro),
+                                      '{0}9-blacklist'.format(dst_distro)]),
+                 RepoMapEntry(source='{0}8-satellite-extras'.format(src_distro),
+                              target=['{0}9-satellite-extras'.format(dst_distro)])],
         repositories=[
             PESIDRepositoryEntry(
-                pesid='rhel7-base',
-                repoid='rhel-7-server-rpms',
-                major_version='7',
-                arch='x86_64',
-                repo_type='rpm',
-                channel='ga',
-                rhui=''
-            ),
-            PESIDRepositoryEntry(
-                pesid='rhel8-baseos',
-                repoid='rhel-8-for-x86_64-baseos-htb-rpms',
+                pesid='{0}8-base'.format(src_distro),
+                repoid='{0}-8-server-rpms'.format(src_distro),
                 major_version='8',
                 arch='x86_64',
                 repo_type='rpm',
                 channel='ga',
-                rhui=''
+                rhui='',
+                distro=src_distro,
             ),
             PESIDRepositoryEntry(
-                pesid='rhel8-appstream',
-                repoid='rhel-8-for-x86_64-appstream-htb-rpms',
+                pesid='{0}9-baseos'.format(dst_distro),
+                repoid='{0}-9-for-x86_64-baseos-htb-rpms'.format(dst_distro),
+                major_version='9',
+                arch='x86_64',
+                repo_type='rpm',
+                channel='ga',
+                rhui='',
+                distro=dst_distro,
+            ),
+            PESIDRepositoryEntry(
+                pesid='{0}9-appstream'.format(dst_distro),
+                repoid='{0}-9-for-x86_64-appstream-htb-rpms'.format(dst_distro),
+                major_version='9',
+                arch='x86_64',
+                repo_type='rpm',
+                channel='ga',
+                rhui='',
+                distro=dst_distro,
+            ),
+            PESIDRepositoryEntry(
+                pesid='{0}9-blacklist'.format(dst_distro),
+                repoid='{0}-9-blacklisted-rpms'.format(dst_distro),
+                major_version='9',
+                arch='x86_64',
+                repo_type='rpm',
+                channel='ga',
+                rhui='',
+                distro=dst_distro,
+            ),
+            PESIDRepositoryEntry(
+                pesid='{0}8-satellite-extras'.format(src_distro),
+                repoid='{0}-8-for-x86_64-satellite-extras-rpms'.format(src_distro),
                 major_version='8',
                 arch='x86_64',
                 repo_type='rpm',
                 channel='ga',
-                rhui=''
+                rhui='',
+                distro=src_distro,
             ),
             PESIDRepositoryEntry(
-                pesid='rhel8-blacklist',
-                repoid='rhel-8-blacklisted-rpms',
-                major_version='8',
+                pesid='{0}9-satellite-extras'.format(dst_distro),
+                repoid='{0}-9-for-x86_64-satellite-extras-rpms'.format(dst_distro),
+                major_version='9',
                 arch='x86_64',
                 repo_type='rpm',
                 channel='ga',
-                rhui=''
-            ),
-            PESIDRepositoryEntry(
-                pesid='rhel7-satellite-extras',
-                repoid='rhel-7-for-x86_64-satellite-extras-rpms',
-                major_version='7',
-                arch='x86_64',
-                repo_type='rpm',
-                channel='ga',
-                rhui=''
-            ),
-            PESIDRepositoryEntry(
-                pesid='rhel8-satellite-extras',
-                repoid='rhel-8-for-x86_64-satellite-extras-rpms',
-                major_version='8',
-                arch='x86_64',
-                repo_type='rpm',
-                channel='ga',
-                rhui=''
+                rhui='',
+                distro=dst_distro,
             ),
         ]
     )
 
-    repos_blacklisted = RepositoriesBlacklisted(repoids=['rhel-8-blacklisted-rpms'])
+    repos_blacklisted = RepositoriesBlacklisted(repoids=['{}-9-blacklisted-rpms'.format(dst_distro)])
 
     msgs = [facts, repomap, repos_blacklisted, installed_rpms]
 
-    monkeypatch.setattr(api, 'current_actor', CurrentActorMocked(msgs=msgs))
+    monkeypatch.setattr(
+        api,
+        'current_actor',
+        CurrentActorMocked(msgs=msgs, src_distro=src_distro, dst_distro=dst_distro),
+    )
     monkeypatch.setattr(api, 'produce', produce_mocked())
 
     setuptargetrepos.process()
     assert api.produce.called
 
+    distro_repos = api.produce.model_instances[0].distro_repos
     rhel_repos = api.produce.model_instances[0].rhel_repos
-    assert len(rhel_repos) == 3
 
+    assert len(distro_repos) == 3
+
+    produced_distro_repoids = {repo.repoid for repo in distro_repos}
     produced_rhel_repoids = {repo.repoid for repo in rhel_repos}
-    expected_rhel_repoids = {'rhel-8-for-x86_64-baseos-htb-rpms', 'rhel-8-for-x86_64-appstream-htb-rpms',
-                             'rhel-8-for-x86_64-satellite-extras-rpms'}
-    assert produced_rhel_repoids == expected_rhel_repoids
+
+    expected_repoids = {
+        "{0}-9-for-x86_64-baseos-htb-rpms".format(dst_distro),
+        "{0}-9-for-x86_64-appstream-htb-rpms".format(dst_distro),
+        "{0}-9-for-x86_64-satellite-extras-rpms".format(dst_distro),
+    }
+
+    assert produced_distro_repoids == expected_repoids
+    if dst_distro == 'rhel':
+        assert len(rhel_repos) == 3
+        assert produced_rhel_repoids == expected_repoids
+    else:
+        assert not rhel_repos
 
 
 def test_skipped_repos_excludes_elevate(monkeypatch):

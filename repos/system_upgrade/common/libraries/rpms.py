@@ -3,7 +3,7 @@ from leapp.libraries.common.config.version import get_source_major_version
 from leapp.models import InstalledRPM
 
 
-class LeappComponents(object):
+class LeappComponents:
     """
     Supported component values to be used with get_packages_function:
     * FRAMEWORK - the core of the leapp project: the leapp executable and
@@ -18,24 +18,39 @@ class LeappComponents(object):
     TOOLS = 'tools'
 
 
+# NOTE: need to keep package for dropped upgrade paths so peseventsscanner can drop
+# related PES events
 _LEAPP_PACKAGES_MAP = {
-        LeappComponents.FRAMEWORK: {'7': {'pkgs': ['leapp', 'python2-leapp'],
-                                          'deps': ['leapp-deps']},
-                                    '8': {'pkgs': ['leapp', 'python3-leapp'],
-                                          'deps': ['leapp-deps']}
-                                    },
-        LeappComponents.REPOSITORY: {'7': {'pkgs': ['leapp-upgrade-el7toel8'],
-                                           'deps': ['leapp-upgrade-el7toel8-deps']},
-                                     '8': {'pkgs': ['leapp-upgrade-el8toel9'],
-                                           'deps': ['leapp-upgrade-el8toel9-deps']}
-                                     },
-        LeappComponents.COCKPIT: {'7': {'pkgs': ['cockpit-leapp']},
-                                  '8': {'pkgs': ['cockpit-leapp']}
-                                  },
-        LeappComponents.TOOLS: {'7': {'pkgs': ['snactor']},
-                                '8': {'pkgs': ['snactor']}
-                                }
-        }
+    LeappComponents.FRAMEWORK: {
+        '7': {'pkgs': ['leapp', 'python2-leapp'], 'deps': ['leapp-deps']},
+        '8': {'pkgs': ['leapp', 'python3-leapp'], 'deps': ['leapp-deps']},
+        '9': {'pkgs': ['leapp', 'python3-leapp'], 'deps': ['leapp-deps']},
+    },
+    LeappComponents.REPOSITORY: {
+        '7': {
+            'pkgs': ['leapp-upgrade-el7toel8'],
+            'deps': ['leapp-upgrade-el7toel8-deps'],
+        },
+        '8': {
+            'pkgs': ['leapp-upgrade-el8toel9', 'leapp-upgrade-el8toel9-fapolicyd'],
+            'deps': ['leapp-upgrade-el8toel9-deps'],
+        },
+        '9': {
+            'pkgs': ['leapp-upgrade-el9toel10', 'leapp-upgrade-el9toel10-fapolicyd'],
+            'deps': ['leapp-upgrade-el9toel10-deps'],
+        },
+    },
+    LeappComponents.COCKPIT: {
+        '7': {'pkgs': ['cockpit-leapp']},
+        '8': {'pkgs': ['cockpit-leapp']},
+        '9': {'pkgs': ['cockpit-leapp']},
+    },
+    LeappComponents.TOOLS: {
+        '7': {'pkgs': ['snactor']},
+        '8': {'pkgs': ['snactor']},
+        '9': {'pkgs': ['snactor']},
+    },
+}
 
 GET_LEAPP_PACKAGES_DEFAULT_COMPONENTS = frozenset((LeappComponents.FRAMEWORK,
                                                    LeappComponents.REPOSITORY,
@@ -84,7 +99,7 @@ def create_lookup(model, field, keys, context=stdlib.api):
 
 def has_package(model, package_name, arch=None, version=None, release=None, context=stdlib.api):
     """
-    Expects a model DistributionSignedRPM or InstalledUnsignedRPM.
+    Expects a DistributionSignedRPM or ThirdPartyRPM model.
     Can be useful in cases like a quick item presence check, ex. check in actor that
     a certain package is installed. Returns BOOL
     :param model: model class

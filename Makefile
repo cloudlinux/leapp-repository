@@ -3,7 +3,7 @@ SHELL=/bin/bash
 
 __PKGNAME=$${_PKGNAME:-leapp-repository}
 VENVNAME ?= tut
-DIST_VERSION ?= 7
+DIST_VERSION ?= 8
 PKGNAME=leapp-repository
 DEPS_PKGNAME=leapp-el7toel8-deps
 VERSION=`grep -m1 "^Version:" packaging/$(PKGNAME).spec | grep -om1 "[0-9].[0-9.]**"`
@@ -12,23 +12,29 @@ REPOS_PATH=repos
 _SYSUPG_REPOS="$(REPOS_PATH)/system_upgrade"
 LIBRARY_PATH=
 REPORT_ARG=
-REPOSITORIES ?= $(shell ls $(_SYSUPG_REPOS) | xargs echo | tr " " ",")
-SYSUPG_TEST_PATHS=$(shell echo $(REPOSITORIES) | sed -r "s|(,\\|^)| $(_SYSUPG_REPOS)/|g")
-TEST_PATHS:=commands repos/common $(SYSUPG_TEST_PATHS)
+
+# python version to run tests with - auto-detect from the OS major version when
+# not set, because CL7 has to be tested under python2.7 and el8+ under python3.
+_PYTHON_VENV=$${PYTHON_VENV:-$$(rpm -E %{rhel} 2>/dev/null | grep -qE '^[89]' && echo python3.6 || echo python2.7)}
+
+ifdef ACTOR
+	# If REPOSITORIES is set, the utils/actor_path.py script searches for the
+	# actor only in the specified repositories.
+	# if REPOSITORIES is not set i.e. it's empty, all repositories are searched
+	# - this is broken due to name collisions in repositories (FIXME)
+	TEST_PATHS = $(shell . $(VENVNAME)/bin/activate && $(_PYTHON_VENV) utils/actor_path.py $(ACTOR) $(REPOSITORIES))
+	APPROX_TEST_PATHS=$(shell $(_PYTHON_VENV) utils/find_actors.py -C repos $(ACTOR))  # Dev only
+else
+	REPOSITORIES ?= $(shell ls $(_SYSUPG_REPOS) | xargs echo | tr " " ",")
+	SYSUPG_TEST_PATHS=$(shell echo $(REPOSITORIES) | sed -r "s|(,\\|^)| $(_SYSUPG_REPOS)/|g")
+	TEST_PATHS:=commands repos/common $(SYSUPG_TEST_PATHS)
+endif
 
 # Several commands can take arbitrary user supplied arguments from environment
 # variables as well:
 PYTEST_ARGS ?=
 PYLINT_ARGS ?=
 FLAKE8_ARGS ?=
-
-# python version to run tests with — auto-detect from OS major version when not set
-_PYTHON_VENV=$${PYTHON_VENV:-$$(rpm -E %{rhel} 2>/dev/null | grep -qE '^[89]' && echo python3.6 || echo python2.7)}
-
-ifdef ACTOR
-	TEST_PATHS=`$(_PYTHON_VENV) utils/actor_path.py $(ACTOR)`
-	APPROX_TEST_PATHS=$(shell $(_PYTHON_VENV) utils/find_actors.py -C repos $(ACTOR))  # Dev only
-endif
 
 ifeq ($(TEST_LIBS),y)
 	LIBRARY_PATH=`python utils/library_path.py`
@@ -67,26 +73,26 @@ SYNC_LEAPP_CLI_DIR ?= $(SYNC_PYTHON_SITELIB)/leapp/cli/commands
 _CONTAINER_TOOL=$${CONTAINER_TOOL:-podman}
 
 # container to run tests in
-_TEST_CONTAINER=$${TEST_CONTAINER:-rhel8}
+_TEST_CONTAINER=$${TEST_CONTAINER:-el8}
 
 # In case just specific CHROOTs should be used for the COPR build, you can
 # set the multiple CHROOTs separated by comma in the COPR_CHROOT envar, e.g.
-# "epel-7-x86_64,epel-8-x86_64". But for the copr-cli utility, each of them
+# "epel-8-x86_64,epel-9-x86_64". But for the copr-cli utility, each of them
 # has to be specified separately for the -r option; So we transform it
-# automatically to "-r epel-7-x86_64 -r epel-8-x86_64" (without quotes).
+# automatically to "-r epel-8-x86_64 -r epel-9-x86_64" (without quotes).
 ifdef COPR_CHROOT
 	_COPR_CHROOT=`echo $${COPR_CHROOT} | grep -o "[^,]*" | sed "s/^/-r /g"`
 endif
 
 # just to reduce number of unwanted builds mark as the upstream one when
 # someone will call copr_build without additional parameters
-MASTER_BRANCH=master
+MASTER_BRANCH=main
 
 # The dependent framework PR connection will be taken from the top commit's depends-on message.
-REQ_LEAPP_PR=$(shell git log master..HEAD | grep -m1 -iE '^[[:space:]]*Depends-On:[[:space:]]*.*[[:digit:]]+[[:space:]]*$$' | grep -Eo '*[[:digit:]]*')
+REQ_LEAPP_PR=$(shell git log main..HEAD | grep -m1 -iE '^[[:space:]]*Depends-On:[[:space:]]*.*[[:digit:]]+[[:space:]]*$$' | grep -Eo '*[[:digit:]]*')
 # NOTE(ivasilev) In case of travis relying on top commit is a no go as a top commit will be a merge commit.
 ifdef CI
-	REQ_LEAPP_PR=$(shell git log master..HEAD | grep -m1 -iE '^[[:space:]]*Depends-On:[[:space:]]*.*[[:digit:]]+[[:space:]]*$$' | grep -Eo '[[:digit:]]*')
+	REQ_LEAPP_PR=$(shell git log main..HEAD | grep -m1 -iE '^[[:space:]]*Depends-On:[[:space:]]*.*[[:digit:]]+[[:space:]]*$$' | grep -Eo '[[:digit:]]*')
 endif
 
 # The release number comes from the spec, read the same way VERSION is.
@@ -131,7 +137,7 @@ help:
 	@echo "                              packaging"
 	@echo "  srpm                        create the SRPM"
 	@echo "  build_container             create the RPM in container"
-	@echo "                              - set BUILD_CONTAINER to el7 or el8"
+	@echo "                              - set BUILD_CONTAINER to el8 or el9"
 	@echo "                              - don't run more than one build at the same time"
 	@echo "                                since containers operate on the same files!"
 	@echo "  copr_build                  create the COPR build using the COPR TOKEN"
@@ -149,7 +155,7 @@ help:
 	@echo "  test                        lint source code and run tests"
 	@echo "  test_no_lint                run tests without linting the source code"
 	@echo "  test_container              run lint and tests in container"
-	@echo "                              - default container is 'rhel8'"
+	@echo "                              - default container is 'el8'"
 	@echo "                              - can be changed by setting TEST_CONTAINER env"
 	@echo "  test_container_all          run lint and tests in all available containers"
 	@echo "  test_container_no_lint      run tests without linting in container, see test_container"
@@ -174,7 +180,7 @@ help:
 	@echo "  COPR_CONFIG           path to the COPR config with API token"
 	@echo "                          (default: ~/.config/copr_rh_oamg.conf)"
 	@echo "  COPR_CHROOT           specify the CHROOT which should be used for"
-	@echo "                        the build, e.g. 'epel-7-x86_64'. You can"
+	@echo "                        the build, e.g. 'epel-8-x86_64'. You can"
 	@echo "                        specify multiple CHROOTs separated by comma."
 	@echo ""
 	@echo "Possible use:"
@@ -184,9 +190,9 @@ help:
 	@echo "  PR=7 SUFFIX='my_additional_suffix' make <target>"
 	@echo "  MR=6 COPR_CONFIG='path/to/the/config/copr/file' make <target>"
 	@echo "  ACTOR=<actor> TEST_LIBS=y make test"
-	@echo "  BUILD_CONTAINER=rhel7 make build_container"
-	@echo "  TEST_CONTAINER=f34 make test_container"
-	@echo "  CONTAINER_TOOL=docker TEST_CONTAINER=rhel7 make test_container_no_lint"
+	@echo "  BUILD_CONTAINER=el8 make build_container"
+	@echo "  TEST_CONTAINER=f42 make test_container"
+	@echo "  CONTAINER_TOOL=docker TEST_CONTAINER=el8 make test_container_no_lint"
 	@echo ""
 
 clean:
@@ -251,8 +257,11 @@ source: prepare
 	@git archive --prefix "$(PKGNAME)-$(VERSION)/" -o "packaging/sources/$(PKGNAME)-$(VERSION).tar.gz" HEAD
 	@echo "--- PREPARE DEPS PKGS ---"
 	mkdir -p packaging/tmp/
-	@$(MAKE) _build_subpkg
-	@$(MAKE) DIST_VERSION=$$(($(DIST_VERSION) + 1)) _build_subpkg
+	@# One per build: each copies leapp*deps*el<next major> from the tarball, and
+	@# DIST_VERSION=N builds the el(N+1) deps. utils/check-spec-platforms.py guards it.
+	@$(MAKE) DIST_VERSION=7 _build_subpkg
+	@$(MAKE) DIST_VERSION=8 _build_subpkg
+	@$(MAKE) DIST_VERSION=9 _build_subpkg
 	@tar -czf packaging/sources/deps-pkgs.tar.gz -C packaging/RPMS/noarch `ls -1 packaging/RPMS/noarch | grep -o "[^/]*rpm$$"`
 	@rm -f packaging/RPMS/noarch/*.rpm
 
@@ -304,20 +313,20 @@ _build_local: source
 		--define "el$(DIST_VERSION) 1" || FAILED=1
 
 build_container:
-	echo "--- Build RPM ${PKGNAME}-${VERSION}-${RELEASE}.el$(DIST_VERSION).rpm in container ---"; \
+	echo "--- Build RPM ${PKGNAME}-${VERSION}-${RELEASE}.el$(DIST_VERSION).rpm in container ---";
 	case "$(BUILD_CONTAINER)" in \
-		el7) \
-			CONT_FILE="utils/container-builds/Containerfile.centos7"; \
-			;; \
 		el8) \
-			CONT_FILE="utils/container-builds/Containerfile.ubi8"; \
+			CONT_FILE="utils/container-builds/Containerfile.el8"; \
+			;; \
+		el9) \
+			CONT_FILE="utils/container-builds/Containerfile.el9"; \
 			;; \
 		"") \
 			echo "BUILD_CONTAINER must be set"; \
 			exit 1; \
 			;; \
 		*) \
-			echo "Available containers are el7, el8"; \
+			echo "Available containers are el8, el9"; \
 			exit 1; \
 			;; \
 	esac && \
@@ -355,18 +364,26 @@ install-deps:
 	pip install --upgrade setuptools; \
 	pip install --upgrade -r requirements.txt; \
 	./utils/install_commands.sh $(_PYTHON_VENV); \
-	# In case the top commit Depends-On some yet unmerged framework patch - override master leapp with the proper version
+	# In case the top commit Depends-On some yet unmerged framework patch - override main leapp with the proper version
 	if [[ ! -z "$(REQ_LEAPP_PR)" ]] ; then \
 		echo "Leapp-repository depends on the yet unmerged pr of the framework #$(REQ_LEAPP_PR), installing it.." && \
 		$(VENVNAME)/bin/pip install -I "git+https://github.com/oamg/leapp.git@refs/pull/$(REQ_LEAPP_PR)/head"; \
 	fi
 	$(_PYTHON_VENV) utils/install_actor_deps.py --actor=$(ACTOR) --repos="$(TEST_PATHS)"
+
 install-deps-fedora:
 	@# Check the necessary rpms are installed for py3 (and py2 below)
-	if ! rpm -q git findutils python3-virtualenv gcc; then \
-		if ! dnf install -y git findutils python3-virtualenv gcc; then \
+	if ! rpm -q git findutils gcc; then \
+		if ! dnf install -y git findutils gcc; then \
 			echo 'Please install the following rpms via the command: ' \
-				'sudo dnf install -y git findutils python3-virtualenv gcc'; \
+				'sudo dnf install -y git findutils gcc'; \
+			exit 1; \
+		fi; \
+	fi
+	if ! command -v virtualenv; then \
+		if ! (dnf install -y python3-virtualenv || pip install virtualenv); then \
+			echo 'Please install the following packages via the command: ' \
+				'sudo dnf install -y python3-virtualenv or pip install virtualenv'; \
 			exit 1; \
 		fi; \
 	fi
@@ -377,7 +394,7 @@ install-deps-fedora:
 	pip install --upgrade setuptools; \
 	pip install --upgrade -r requirements.txt; \
 	./utils/install_commands.sh $(_PYTHON_VENV); \
-	# In case the top commit Depends-On some yet unmerged framework patch - override master leapp with the proper version
+	# In case the top commit Depends-On some yet unmerged framework patch - override main leapp with the proper version
 	if [[ ! -z "$(REQ_LEAPP_PR)" ]] ; then \
 		echo "Leapp-repository depends on the yet unmerged pr of the framework #$(REQ_LEAPP_PR), installing it.." && \
 		$(VENVNAME)/bin/pip install -I "git+https://github.com/oamg/leapp.git@refs/pull/$(REQ_LEAPP_PR)/head"; \
@@ -400,7 +417,14 @@ lint-spec-release:
 	@echo "--- Checking the build ships the release the spec declares ---"
 	@python3 utils/check-spec-release.py
 
-lint: lint-non-ascii lint-spec-release
+# A merge from upstream can drop the deps bundle for a build of ours - 0.24.0 did -
+# and nothing here may also be shipped by leapp-data-cloudlinux. Pure stdlib
+# python3; one source of truth for `make lint` and CI.
+lint-spec-platforms:
+	@echo "--- Checking every build's deps are bundled and nothing is shipped twice ---"
+	@python3 utils/check-spec-platforms.py
+
+lint: lint-non-ascii lint-spec-release lint-spec-platforms _warn_misssing_repos_if_using_actor
 	. $(VENVNAME)/bin/activate; \
 	echo "--- Linting ... ---" && \
 	SEARCH_PATH="$(TEST_PATHS)" && \
@@ -418,30 +442,46 @@ lint: lint-non-ascii lint-spec-release
 		echo "--- Linting done. ---"; \
 	fi
 
-	if [[  "`git rev-parse --abbrev-ref HEAD`" != "$(MASTER_BRANCH)" ]] && [[ -n "`git diff $(MASTER_BRANCH) --name-only --diff-filter AMR`" ]]; then \
+	if [[  "`git rev-parse --abbrev-ref HEAD`" != "$(MASTER_BRANCH)" ]]; then \
 		. $(VENVNAME)/bin/activate; \
-		git diff $(MASTER_BRANCH) --name-only --diff-filter AMR | xargs isort -c --diff || \
-		{ \
+		files_to_sort=`git diff main --name-only --diff-filter AMR | grep -v "^docs/"`; \
+		if [ -n "$$files_to_sort" ]; then \
+			echo "$$files_to_sort" | xargs isort -c --diff || { \
 			echo; \
-			echo "------------------------------------------------------------------------------"; \
-			echo "Hint: Apply the required changes."; \
+			echo "Hint: Apply the required changes.";\
 			echo "      Execute the following command to apply them automatically: make lint_fix"; \
 			exit 1; \
-		} && echo "--- isort check done. ---"; \
+			} && echo "--- isort check done. ---"; \
+		fi \
 	fi
 
 lint_fix:
 	. $(VENVNAME)/bin/activate; \
-	git diff $(MASTER_BRANCH) --name-only --diff-filter AMR | xargs isort && \
+	git diff $(MASTER_BRANCH) --name-only --diff-filter AMR | grep -v "^docs/" | xargs isort && \
 	echo "--- isort inplace fixing done. ---;"
 
-test_no_lint:
+test_no_lint: _warn_misssing_repos_if_using_actor
+	@echo "============= snactor sanity-check ipu ===============" 2>&1
 	. $(VENVNAME)/bin/activate; \
 	snactor repo find --path repos/; \
-	cd repos/system_upgrade/el7toel8/; \
-	snactor workflow sanity-check ipu && \
-	cd - && \
-	$(_PYTHON_VENV) -m pytest $(REPORT_ARG) $(TEST_PATHS) $(LIBRARY_PATH) $(PYTEST_ARGS)
+	for dir in $$(echo $(REPOSITORIES) | tr "," " "); do \
+		echo "Running sanity-check in $(_SYSUPG_REPOS)/$$dir"; \
+		(cd $(_SYSUPG_REPOS)/$$dir && snactor workflow sanity-check ipu); \
+	done
+
+	@echo "==================== unit tests ======================" 2>&1;
+# the below commands need to be one shell invocation for the early exit to work;
+# note: need to store the paths into separate var as it here as it's lazily
+# evaluated on each use :), using ?= for the assignment does not help for
+# some reason
+	@paths="$(TEST_PATHS)"; \
+	if [[ $$(echo "$$paths" | grep 'ERROR:') && -n "$(ACTOR)" ]]; then \
+		echo Failed to find the '$(ACTOR)' actor in the '$(REPOSITORIES)' repositories: $$paths; \
+		printf "\033[0;33mSkipping unit tests, could not find the '$(ACTOR)' actor in $(REPOSITORIES) repositories\033[0m\n"; \
+		exit 0; \
+	fi; \
+	. $(VENVNAME)/bin/activate; \
+	$(_PYTHON_VENV) -m pytest $(REPORT_ARG) $$paths $(LIBRARY_PATH) $(PYTEST_ARGS)
 
 test: lint test_no_lint
 
@@ -463,15 +503,18 @@ _test_container_ipu:
 	el8toel9) \
 		export REPOSITORIES="common,el8toel9"; \
 		;; \
+	el9toel10) \
+		export REPOSITORIES="common,el9toel10"; \
+		;; \
 	"") \
 		echo "TEST_CONT_IPU must be set"; exit 1; \
 		;; \
 	*) \
-		echo "Only supported TEST_CONT_IPUs are el7toel8, el8toel9"; exit 1; \
+		echo "Only supported TEST_CONT_IPUs are el7toel8, el8toel9, el9toel10"; exit 1; \
 		;; \
 	esac && \
 	$(_CONTAINER_TOOL) exec -w /repocopy $$_CONT_NAME make clean && \
-	$(_CONTAINER_TOOL) exec -w /repocopy -e REPOSITORIES $$_CONT_NAME make $${_TEST_CONT_TARGET:-test}
+	$(_CONTAINER_TOOL) exec -w /repocopy -e ACTOR -e REPOSITORIES $$_CONT_NAME make $${_TEST_CONT_TARGET:-test}
 
 
 # Runs lint in a container
@@ -479,31 +522,34 @@ lint_container:
 	@_TEST_CONT_TARGET="lint" $(MAKE) test_container
 
 lint_container_all:
-	@for container in "f34" "rhel7" "rhel8"; do \
+	@for container in el7 f42 el{8,9}; do \
 		TEST_CONTAINER=$$container $(MAKE) lint_container || exit 1; \
 	done
 
 # Runs tests in a container
 # Builds testing image first if it doesn't exist
 # On some Python versions, we need to test both IPUs,
-# because e.g. RHEL7 to RHEL8 IPU must work on python2.7 and python3.6
-# and RHEL8 to RHEL9 IPU must work on python3.6 and python3.9.
+# because e.g RHEL8 to RHEL9 IPU must work on python3.6 and python3.9.
 test_container:
 	@case $(_TEST_CONTAINER) in \
-	f34) \
-		export CONT_FILE="utils/container-tests/Containerfile.f34"; \
-		export _VENV="python3.9"; \
-		;; \
-	rhel7) \
-		export CONT_FILE="utils/container-tests/Containerfile.rhel7"; \
+	el7) \
+		export CONT_FILE="utils/container-tests/Containerfile.el7"; \
 		export _VENV="python2.7"; \
 		;; \
-	rhel8) \
-		export CONT_FILE="utils/container-tests/Containerfile.rhel8"; \
+	f42) \
+		export CONT_FILE="utils/container-tests/Containerfile.f42"; \
+		export _VENV="python3.13"; \
+		;; \
+	el8) \
+		export CONT_FILE="utils/container-tests/Containerfile.el8"; \
 		export _VENV="python3.6"; \
 		;; \
+	el9) \
+		export CONT_FILE="utils/container-tests/Containerfile.el9"; \
+		export _VENV="python3.9"; \
+		;; \
 	*) \
-		echo "Error: Available containers are: f34, rhel7, rhel8"; exit 1; \
+		echo "Error: Available containers are: el7, f42, el8, el9"; exit 1; \
 		;; \
 	esac; \
 	export TEST_IMAGE="leapp-repo-tests-$(_TEST_CONTAINER)"; \
@@ -512,27 +558,35 @@ test_container:
 	export _CONT_NAME="leapp-repo-tests-$(_TEST_CONTAINER)-cont"; \
 	$(_CONTAINER_TOOL) ps -q -f name=$$_CONT_NAME && { $(_CONTAINER_TOOL) kill $$_CONT_NAME; $(_CONTAINER_TOOL) rm $$_CONT_NAME; }; \
 	$(_CONTAINER_TOOL) run -di --name $$_CONT_NAME -v "$$PWD":/repo:Z -e PYTHON_VENV=$$_VENV $$TEST_IMAGE && \
-	$(_CONTAINER_TOOL) exec $$_CONT_NAME rsync -aur --delete --exclude "tut*" /repo/ /repocopy && \
+	$(_CONTAINER_TOOL) exec $$_CONT_NAME rsync -aur --delete --exclude 'tut/' --exclude 'docs/' --exclude '**/__pycache__/' --exclude 'packaging/' --exclude '.git/' /repo/ /repocopy && \
+	$(_CONTAINER_TOOL) exec $$_CONT_NAME rsync -aur --delete --exclude '**/__pycache__/' /repo/commands/ /repocopy/tut/lib/$$_VENV/site-packages/leapp/cli/commands/ && \
+	$(_CONTAINER_TOOL) exec -w /repocopy $$_CONT_NAME bash -c '. $(VENVNAME)/bin/activate && snactor repo find --path repos' && \
+	export res=0; \
 	case $$_VENV in \
 	python2.7) \
-		TEST_CONT_IPU=el7toel8 $(MAKE) _test_container_ipu; \
-		;;\
+		TEST_CONT_IPU=el7toel8 $(MAKE) _test_container_ipu || res=1; \
+		;; \
 	python3.6) \
-		TEST_CONT_IPU=el7toel8 $(MAKE) _test_container_ipu; \
-		TEST_CONT_IPU=el8toel9 $(MAKE) _test_container_ipu; \
+		TEST_CONT_IPU=el8toel9 $(MAKE) _test_container_ipu || res=1; \
 		;; \
 	python3.9) \
-		TEST_CONT_IPU=el8toel9 $(MAKE) _test_container_ipu; \
+		TEST_CONT_IPU=el8toel9 $(MAKE) _test_container_ipu || res=1; \
+		TEST_CONT_IPU=el9toel10 $(MAKE) _test_container_ipu || res=1; \
+		;; \
+	python3.12) \
+		TEST_CONT_IPU=el9toel10 $(MAKE) _test_container_ipu || res=1; \
 		;; \
 	*) \
-		TEST_CONT_IPU=el8toel9 $(MAKE) _test_container_ipu; \
-		;;\
+		TEST_CONT_IPU=el8toel9 $(MAKE) _test_container_ipu || res=1; \
+		;; \
 	esac; \
 	$(_CONTAINER_TOOL) kill $$_CONT_NAME; \
-	$(_CONTAINER_TOOL) rm $$_CONT_NAME
+	$(_CONTAINER_TOOL) rm $$_CONT_NAME; \
+	[ $$res -ne 0 ] && echo "TIP: If you do not see an error in the end of logs, scroll up. Multiple tests could be executed." ; \
+	exit $$res
 
 test_container_all:
-	@for container in "f34" "rhel7" "rhel8"; do \
+	@for container in "el7" "f42" "el8" "el9"; do \
 		TEST_CONTAINER=$$container $(MAKE) test_container || exit 1; \
 	done
 
@@ -540,14 +594,13 @@ test_container_no_lint:
 	@_TEST_CONT_TARGET="test_no_lint" $(MAKE) test_container
 
 test_container_all_no_lint:
-	@for container in "f34" "rhel7" "rhel8"; do \
+	@for container in el7 f42 el{8,9}; do \
 		TEST_CONTAINER=$$container $(MAKE) test_container_no_lint || exit 1; \
 	done
 
 # clean all testing and building containers and their images
 clean_containers:
-	@for i in "leapp-repo-tests-f34" "leapp-repo-tests-rhel7" "leapp-repo-tests-rhel8" \
-	"leapp-repo-build-el7" "leapp-repo-build-el8"; do \
+	@for i in leapp-repo-tests-el7 leapp-repo-tests-f42 leapp-repo-tests-el{8,9} leapp-repo-build-el{8,9}; do \
 		$(_CONTAINER_TOOL) kill "$$i-cont" || :; \
 		$(_CONTAINER_TOOL) rm "$$i-cont" || :; \
 		$(_CONTAINER_TOOL) rmi "$$i" || :;  \
@@ -557,8 +610,9 @@ fast_lint:
 	@. $(VENVNAME)/bin/activate; \
 	FILES_TO_LINT="$$(git diff --name-only $(MASTER_BRANCH) --diff-filter AMR | grep '\.py$$')"; \
 	if [[ -n "$$FILES_TO_LINT" ]]; then \
+		isort -c --diff $$FILES_TO_LINT && \
 		pylint -j 0 $$FILES_TO_LINT $(PYLINT_ARGS) && \
-		flake8 $$FILES_TO_LINT $(FLAKE8_ARG); \
+		flake8 $$FILES_TO_LINT $(FLAKE8_ARGS); \
 		LINT_EXIT_CODE="$$?"; \
 		if [[ "$$LINT_EXIT_CODE" != "0" ]]; then \
 			exit $$LINT_EXIT_CODE; \
@@ -581,5 +635,14 @@ dashboard_data:
 	$(_PYTHON_VENV) ../../../utils/dashboard-json-dump.py > ../../../discover.json; \
 	popd
 
-.PHONY: help build clean prepare sync-sources source srpm copr_build _build_local build_container print_release register install-deps install-deps-fedora  lint test_no_lint test dashboard_data fast_lint
+_warn_misssing_repos_if_using_actor:
+	@if [ -z "$(REPOSITORIES)" -a -n "$(ACTOR)" ]; then \
+		printf "\033[0;31mERROR\033[0m: Running linters/tests with ACTOR without"; \
+		printf " specifying REPOSITORIES is currently broken.\n" 2>&1; \
+		printf "         Specify REPOSITORIES with only one elXtoelY repository"; \
+		printf " (e.g. REPOSITORIES=common,el8toel9).\n" 2>&1; \
+		exit 1; \
+	fi
+
+.PHONY: help build clean prepare sync-sources source srpm copr_build _build_local build_container print_release register install-deps install-deps-fedora  lint lint-non-ascii lint-spec-release lint-spec-platforms test_no_lint test dashboard_data fast_lint _warn_misssing_repos_if_using_actor
 .PHONY: test_container test_container_no_lint test_container_all test_container_all_no_lint clean_containers _build_container_image _test_container_ipu dev_test_no_lint

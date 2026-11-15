@@ -26,7 +26,7 @@ class SELinuxApplyCustom(Actor):
     tags = (ApplicationsPhaseTag, IPUWorkflowTag)
 
     def process(self):
-        # save progress for repoting purposes
+        # save progress for reporting purposes
         failed_modules = []
         failed_custom = []
 
@@ -40,9 +40,7 @@ class SELinuxApplyCustom(Actor):
             return
 
         # get list of policy modules after the upgrade
-        installed_modules = set(
-            [module[0] for module in selinuxapplycustom.list_selinux_modules()]
-        )
+        installed_modules = {module[0] for module in selinuxapplycustom.list_selinux_modules()}
 
         # import custom SElinux modules
         for semodules in self.consume(SELinuxModules):
@@ -91,6 +89,10 @@ class SELinuxApplyCustom(Actor):
                     continue
 
                 command.extend(['-X', str(module.priority), '-i', cil_filename])
+
+            if command == ['semodule']:
+                # no modules selected for installation
+                continue
 
             try:
                 run(command)

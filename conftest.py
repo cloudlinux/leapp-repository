@@ -1,10 +1,15 @@
 import logging
 import os
+import shutil
+import tempfile
+
+import pytest
 
 from leapp.repository.manager import RepositoryManager
 from leapp.repository.scan import find_and_scan_repositories
 from leapp.utils.repository import find_repository_basedir, get_repository_id
 
+pytest_plugins = ('leapp.snactor.fixture',)
 logger = logging.getLogger(__name__)
 logging.getLogger("asyncio").setLevel(logging.INFO)
 logging.getLogger("parso").setLevel(logging.INFO)
@@ -95,3 +100,18 @@ def pytest_runtestloop(session):
         )
     except AttributeError:
         pass
+
+
+@pytest.fixture
+def leapp_tmpdir():
+    """
+    Create a temporary directory with 'leapptest-' prefix in /tmp.
+
+    This fixture automatically creates and cleans up a temporary directory
+    that follows the project's naming convention for test directories.
+
+    :returns: Path to the temporary directory
+    :rtype: str
+    """
+    with tempfile.TemporaryDirectory(prefix='leapptest-', dir='/tmp') as tmpdir:
+        yield tmpdir

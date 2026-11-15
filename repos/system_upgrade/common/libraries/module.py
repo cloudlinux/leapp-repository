@@ -1,5 +1,6 @@
 import warnings
 
+from leapp.exceptions import StopActorExecutionError
 from leapp.libraries.common.config.version import get_source_major_version
 
 try:
@@ -26,25 +27,31 @@ def _create_or_get_dnf_base(base=None):
         # preload releasever from what we know, this will be our fallback
         conf.substitutions['releasever'] = get_source_major_version()
 
-        # dnf on EL7 doesn't load vars from /etc/yum, so we need to help it a bit
-        if get_source_major_version() == '7':
-            try:
-                with open('/etc/yum/vars/releasever') as releasever_file:
-                    conf.substitutions['releasever'] = releasever_file.read().strip()
-            except IOError:
-                pass
-
         # load all substitutions from etc
         conf.substitutions.update_from_etc('/')
 
         base = dnf.Base(conf=conf)
+        base.conf.read()
         base.init_plugins()
         base.read_all_repos()
         # configure plugins after the repositories are loaded
         # e.g. the amazon-id plugin requires loaded repositories
         # for the proper configuration.
         base.configure_plugins()
-        base.fill_sack()
+
+        try:
+            base.fill_sack()
+        except dnf.exceptions.RepoError as e:
+            err_msg = str(e)
+            repoid = err_msg.split('repo:')[-1].strip() if 'repo:' in err_msg else 'unknown repo'
+            repoid = repoid.strip('"').strip("'").replace('\\"', '')
+            raise StopActorExecutionError(
+                message='DNF failed to load repositories: {}'.format(str(e)),
+                details={
+                    'hint': 'Ensure the {} repository definition is correct or remove it '
+                            'if the repository is not needed anymore.'.format(repoid)
+                }
+            )
     return base
 
 

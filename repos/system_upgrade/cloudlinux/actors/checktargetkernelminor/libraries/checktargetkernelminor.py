@@ -21,7 +21,8 @@ import re
 
 from leapp import reporting
 from leapp.libraries.common.config.version import get_target_major_version
-from leapp.libraries.stdlib import CalledProcessError, api, run
+from leapp.libraries.common.targetrepoquery import query_available
+from leapp.libraries.stdlib import CalledProcessError, api
 
 
 # CloudLinux/RHEL dist-tag with minor version: e.g.
@@ -55,6 +56,23 @@ def parse_kernel_minor(release_str, target_major):
     return int(m.group(2))
 
 
+# CloudLinux 10 dropped minor versions: cloudlinux-release is version "10", not
+# "10.2", and there is no per-minor channel. The skew this check guards against -
+# the channel serving a kernel from a newer minor than the rest of the userland -
+# cannot arise without minors. Without this the check still does nothing, because
+# the release-minor parser finds no minor and bails, but it does so by accident.
+_FIRST_MAJOR_WITHOUT_MINORS = 10
+
+
+def _target_has_minor_versions(target_major):
+    try:
+        return int(target_major) < _FIRST_MAJOR_WITHOUT_MINORS
+    except (TypeError, ValueError):
+        # An unparseable major is not something to make a decision on; let the
+        # rest of the check run and bail on its own terms.
+        return True
+
+
 def parse_release_minor(version_str, target_major):
     """Return the minor version from a cloudlinux-release RPM version field,
     or None if not present or not for the target major.
@@ -78,22 +96,18 @@ def _repoquery(installroot, pkg):
     nothing available - callers treat absence as "cannot determine" rather
     than as evidence of safety.
     """
-    cmd = [
-        'dnf', '-q', 'repoquery',
-        '--installroot={}'.format(installroot),
-        '--available',
-        '--queryformat=%{version}|%{release}\n',
-        pkg,
-    ]
+    # A query that fails reads as an empty list, so the caller logs "could not
+    # determine both minors" and returns: query_available's skip_if_unavailable
+    # is what keeps one stale repofile from switching the CLOS-3716 guard off.
     try:
-        result = run(cmd, split=False)
+        stdout = query_available(installroot, '%{version}|%{release}\n', pkg)
     except (OSError, CalledProcessError) as exc:
         api.current_logger().warning(
             'repoquery for %s in %s failed: %s', pkg, installroot, exc
         )
         return []
     rows = []
-    for line in (result.get('stdout') or '').splitlines():
+    for line in stdout.splitlines():
         line = line.strip()
         if not line or '|' not in line:
             continue
@@ -154,6 +168,13 @@ def process(installroot, query_fn=None, target_major=None):
         query_fn = _repoquery
     if target_major is None:
         target_major = get_target_major_version()
+
+    if not _target_has_minor_versions(target_major):
+        api.current_logger().info(
+            'Skipping kernel-minor check: CloudLinux %s has no minor versions,'
+            ' so a kernel cannot be ahead of the userland by one.', target_major,
+        )
+        return
 
     kernel_rows = query_fn(installroot, 'kernel-core')
     release_rows = query_fn(installroot, 'cloudlinux-release')

@@ -7,7 +7,7 @@ import time
 from leapp import reporting
 from leapp.exceptions import StopActorExecutionError
 from leapp.libraries.common import repofileutils
-from leapp.libraries.common.config import get_env
+from leapp.libraries.common.config import get_env, get_target_distro_id
 from leapp.libraries.stdlib import api, CalledProcessError
 from leapp.models import RHSMInfo
 
@@ -19,6 +19,15 @@ _RETRY_SLEEP = 5
 _DEFAULT_RHSM_REPOFILE = '/etc/yum.repos.d/redhat.repo'
 
 SCA_TEXT = "Content Access Mode is set to Simple Content Access"
+
+_DEFAULT_EXCEPTION_HINT = (
+    'Please ensure you have a valid RHEL subscription and your network is up.'
+    ' If you are using proxy for Red Hat subscription-manager, please make sure'
+    ' it is specified inside the /etc/rhsm/rhsm.conf file.'
+    ' Or use the --no-rhsm option when running leapp, if you do not want to'
+    ' use subscription-manager for the in-place upgrade and you want to'
+    ' deliver all target repositories by yourself or using RHUI on public cloud.'
+)
 
 
 def _rhsm_retry(max_attempts, sleep=None):
@@ -72,27 +81,20 @@ def _handle_rhsm_exceptions(hint=None):
             }
         )
     except CalledProcessError as e:
-        _def_hint = (
-            'Please ensure you have a valid RHEL subscription and your network is up.'
-            ' If you are using proxy for Red Hat subscription-manager, please make sure'
-            ' it is specified inside the /etc/rhsm/rhsm.conf file.'
-            ' Or use the --no-rhsm option when running leapp, if you do not want to'
-            ' use subscription-manager for the in-place upgrade and you want to'
-            ' deliver all target repositories by yourself or using RHUI on public cloud.'
-        )
         raise StopActorExecutionError(
             message='A subscription-manager command failed to execute',
             details={
                 'details': str(e),
                 'stderr': e.stderr,
-                'hint': hint or _def_hint
+                'hint': hint or _DEFAULT_EXCEPTION_HINT,
+                'link': 'https://access.redhat.com/solutions/6138372'
             }
         )
 
 
 def skip_rhsm():
     """Check whether we should skip RHSM related code."""
-    return True
+    return get_env('LEAPP_NO_RHSM', '0') == '1'
 
 
 def with_rhsm(f):
@@ -168,7 +170,17 @@ def get_available_repo_ids(context):
             details={'details': str(exc), 'stderr': exc.stderr}
         )
 
-    repofiles = repofileutils.get_parsed_repofiles(context)
+    try:
+        repofiles = repofileutils.get_parsed_repofiles(context)
+    except repofileutils.InvalidRepoDefinition as e:
+        raise StopActorExecutionError(
+            message="Failed to get repositories available through RHSM: {}".format(str(e)),
+            details={
+                'hint': 'Ensure the repository definition is correct or remove it '
+                        'if the repository is not needed anymore. '
+                        'This issue is typically caused by missing definition of the name field. '
+                        'For more information, see: https://access.redhat.com/solutions/6969001. '
+            })
 
     # TODO: move this functionality out! Create check actor that will do
     # the inhibit. The functionality is really not good here in the current
@@ -325,15 +337,41 @@ def set_container_mode(context):
     could be affected and the generated repo file in the container could be
     affected as well (e.g. when the release is set, using rhsm, on the host).
 
+    We want to put RHSM into the container mode always when /etc/rhsm and
+    /etc/pki/entitlement directories exists, even when leapp is executed with
+    --no-rhsm option. If any of these directories are missing, skip other
+    actions - most likely RHSM is not installed in such a case.
+    Note that this only true on RHEL systems, on non-RHEL (which don't use RHSM)
+    this function does nothing.
+
     :param context: An instance of a mounting.IsolatedActions class
     :type context: mounting.IsolatedActions class
     """
+    # this has to happen even with skip_rhsm, but only on RHEL target
+    if get_target_distro_id() != 'rhel':
+        api.current_logger().info(
+            'Skipping setting RHSM into container mode on non-RHEL systems.'
+        )
+        return
+
     if not context.is_isolated():
         api.current_logger().error('Trying to set RHSM into the container mode'
                                    'on host. Skipping the action.')
         return
+    # TODO(pstodulk): check "rhsm identity" whether system is registered
+    # and the container mode should be required
+    if (not os.path.exists(context.full_path('/etc/rhsm'))
+            or not os.path.exists(context.full_path('/etc/pki/entitlement'))):
+        api.current_logger().warning(
+            'Cannot set the container mode for the subscription-manager as'
+            ' one of required directories is missing. Most likely RHSM is not'
+            ' installed. Skipping other actions.'
+        )
+        return
+
     try:
         context.call(['ln', '-s', '/etc/rhsm', '/etc/rhsm-host'])
+        context.call(['ln', '-s', '/etc/pki/entitlement', '/etc/pki/entitlement-host'])
     except CalledProcessError:
         raise StopActorExecutionError(
                 message='Cannot set the container mode for the subscription-manager.')
@@ -365,6 +403,40 @@ def switch_certificate(context, rhsm_info, cert_path):
             context.copy_to(cert_path, os.path.join(path, os.path.basename(cert_path)))
 
 
+def is_rhsm_registered(context):
+    """
+    Check whether the system is registered with Red Hat Subscription Manager
+
+    Note that this doesn't differentiate between SCA and SKU access.
+    If subscription-manager isn't installed it's assumed the system is not
+    registered and false is returned.
+
+    :param context: An instance of a mounting.IsolatedActions class
+    :type context: mounting.IsolatedActions class
+    :return: True if it is registered, false otherwise
+    :rtype: bool
+    """
+    try:
+        result = context.call(['subscription-manager', 'identity'], checked=False)
+    except OSError as e:
+        api.current_logger().error('Failed to execute subscription-manager executable: {}'.format(e))
+        return False
+    if result['exit_code'] == 0:
+        return True
+    if result['exit_code'] == 1:
+        return False
+    raise StopActorExecutionError(
+        message='A subscription-manager command failed to execute',
+        details={
+            'details': 'Command \'subscription-manager identity\' exited with exit code: {}'.format(
+                result["exit_code"]
+            ),
+            'hint': _DEFAULT_EXCEPTION_HINT,
+            'link': 'https://access.redhat.com/solutions/6138372'  # TODO check link
+        }
+    )
+
+
 @with_rhsm
 def scan_rhsm_info(context):
     """
@@ -384,4 +456,5 @@ def scan_rhsm_info(context):
     info.release = get_release(context)
     info.existing_product_certificates.extend(get_existing_product_certificates(context))
     info.sca_detected = is_manifest_sca(context)
+    info.is_registered = is_rhsm_registered(context)
     return info

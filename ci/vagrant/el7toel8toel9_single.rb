@@ -22,7 +22,7 @@ Vagrant.configure('2') do |config|
   end
 
   # EL7toEL8
-  target_distros = ['almalinux', 'centosstream', 'eurolinux', 'oraclelinux', 'rocky']
+  target_distros = ['almalinux', 'centosstream', 'oraclelinux', 'rocky']
 
   target_distros.each do |target_distro|
     config.vm.define "#{target_distro}_8" do |machine|
@@ -35,7 +35,6 @@ Vagrant.configure('2') do |config|
   target_distros_el9 = {
     almalinux: 'almalinux/8',
     # centosstream: 'generic/centos8s',
-    eurolinux: 'eurolinux-vagrant/eurolinux-8',
     rocky: 'generic/rocky8'
   }
 

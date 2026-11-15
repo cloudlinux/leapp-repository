@@ -1,0 +1,70 @@
+"""The repoquery the CloudLinux checks run against the target repositories.
+
+Those checks run before the upgrade transaction, to predict what the
+transaction will be able to install. A prediction is only worth something if
+the query reads the repositories the transaction will read, and the query
+therefore runs where the transaction does: inside the target userspace.
+
+The CloudLinux mirrorlist decides that, not the repofile. It answers by the
+client's own release, which it reads from dnf's User-Agent, not by the channel
+the URL names; and dnf builds that User-Agent from the /etc/os-release of the
+root it runs in, never from --installroot. dnf on a CloudLinux 8 source sends
+"CloudLinux 8.10", so .../cloudlinux-x86_64-server-9.8 comes back as the 8.10
+channel. Run that way, the essential-package check saw only el8 builds of
+lve-stats3 and inhibited every CloudLinux 8 to 9 upgrade over a package the
+transaction installs.
+
+Everything else is already on the right side of this. target_userspace_creator
+installs the target cloudlinux-release into the source overlay before it builds
+the userspace (_install_cloudlinux_release), so dnf there reports the target
+release, and the transaction runs inside the target userspace.
+
+The query also keeps its own metadata cache, because dnf reuses cached metadata
+whatever release the client now reports: what another dnf call left in the
+userspace's /var/cache/dnf would be read back unchanged. QUERY_CACHEDIR is inside
+the target userspace, which is rebuilt on every leapp run, so only these queries
+ever fill it.
+
+The container runs with SYSTEMD_SECCOMP=0 when the target is 9, as dnfplugin's
+own nspawn calls do. systemd 239 on a CloudLinux 8 source filters clone3, which
+the el9 glibc uses to create threads, so inside the el9 userspace dnf cannot
+start libcurl's resolver thread ("getaddrinfo() thread failed to start"). Every
+repository then fails to download, skip_if_unavailable hides it, and every
+query answers nothing at all.
+
+--releasever is the target version, as the DNF plugin gives the transaction.
+skip_if_unavailable keeps one unreachable repository from failing every query:
+the target userspace inherits the source system's repofiles, and a stale one -
+cl-mysql, whose baseurl interpolates $releasever and 404s on the target - makes
+dnf exit 1 for any query at all.
+"""
+
+from leapp.libraries.common import mounting
+from leapp.libraries.common.config.version import get_target_major_version, get_target_version
+
+# Inside the target userspace; see the module docstring for why not /var/cache/dnf.
+QUERY_CACHEDIR = '/var/cache/leapp-target-repoquery'
+
+
+def query_available(installroot, queryformat, name):
+    """stdout of a repoquery for the available builds of `name`.
+
+    Raises what leapp's run raises - CalledProcessError when dnf fails, OSError
+    when it cannot be started - for the caller to read as "could not answer".
+    """
+    cmd = [
+        'dnf', '-q', 'repoquery',
+        '--releasever={0}'.format(get_target_version()),
+        '--setopt=cachedir={0}'.format(QUERY_CACHEDIR),
+        '--setopt=*.skip_if_unavailable=1',
+        '--available',
+        '--queryformat={0}'.format(queryformat),
+        name,
+    ]
+    env = {}
+    if get_target_major_version() == '9':
+        # As dnfplugin does: allow the RHEL 9 syscalls systemd-nspawn 239 filters.
+        env = {'SYSTEMD_SECCOMP': '0'}
+    with mounting.NspawnActions(base_dir=installroot) as context:
+        result = context.call(cmd, split=False, env=env)
+    return result.get('stdout') or ''

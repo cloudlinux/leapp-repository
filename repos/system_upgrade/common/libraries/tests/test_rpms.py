@@ -36,13 +36,66 @@ def test_parse_config_modification():
     assert _parse_config_modification(data, "/etc/ssh/sshd_config")
 
 
-@pytest.mark.parametrize('major_version,component,result', [
-   (None, None, ['leapp', 'python3-leapp', 'leapp-upgrade-el8toel9', 'snactor']),
-   ('7', None, ['leapp', 'python2-leapp', 'leapp-upgrade-el7toel8', 'snactor']),
-   (['7', '8'], None, ['leapp', 'python2-leapp', 'leapp-upgrade-el7toel8',
-                       'python3-leapp', 'leapp-upgrade-el8toel9', 'snactor']),
-   ('8', 'framework', ['leapp', 'python3-leapp']),
-   ])
+@pytest.mark.parametrize(
+    "major_version,component,result",
+    [
+        (
+            None,
+            None,
+            [
+                "leapp",
+                "python3-leapp",
+                "leapp-upgrade-el8toel9",
+                "leapp-upgrade-el8toel9-fapolicyd",
+                "snactor",
+            ],
+        ),
+        ("7", None, ["leapp", "python2-leapp", "leapp-upgrade-el7toel8", "snactor"]),
+        (
+            "8",
+            None,
+            [
+                "leapp",
+                "python3-leapp",
+                "leapp-upgrade-el8toel9",
+                "leapp-upgrade-el8toel9-fapolicyd",
+                "snactor",
+            ],
+        ),
+        (
+            ["7", "8"],
+            None,
+            [
+                "leapp",
+                "python2-leapp",
+                "leapp-upgrade-el7toel8",
+                "python3-leapp",
+                "leapp-upgrade-el8toel9",
+                "leapp-upgrade-el8toel9-fapolicyd",
+                "snactor",
+            ],
+        ),
+        (
+            ["8", "9"],
+            None,
+            [
+                "leapp",
+                "python3-leapp",
+                "leapp-upgrade-el8toel9",
+                "leapp-upgrade-el8toel9-fapolicyd",
+                "leapp-upgrade-el9toel10",
+                "leapp-upgrade-el9toel10-fapolicyd",
+                "snactor",
+            ],
+        ),
+        ("8", "framework", ["leapp", "python3-leapp"]),
+        (
+            "9",
+            "repository",
+            ["leapp-upgrade-el9toel10", "leapp-upgrade-el9toel10-fapolicyd"],
+        ),
+    ],
+)
 def test_get_leapp_packages(major_version, component, result, monkeypatch):
     monkeypatch.setattr(api, 'current_actor', CurrentActorMocked(arch='x86_64', src_ver='8.9', dst_ver='9.3'))
 
@@ -61,7 +114,7 @@ def test_get_leapp_packages(major_version, component, result, monkeypatch):
      r"component nosuchcomponent is unknown, available choices are \['cockpit', 'framework', 'repository', 'tools']")
     ),
    ('nosuchversion', "framework",
-    (ValueError, r"major_version nosuchversion is unknown, available choices are \['7', '8']")),
+    (ValueError, r"major_version nosuchversion is unknown, available choices are \['7', '8', '9']")),
    ('nosuchversion', False,
     (ValueError, r"At least one component must be specified when calling this function,"
      r" available choices are \['cockpit', 'framework', 'repository', 'tools']")),
