@@ -26,6 +26,17 @@ from leapp.libraries.actor import checkcldeployrepofile
             ],
             [],
         ),
+        # cldeploy repofiles must be detected even when the system uses a
+        # non-standard reposdir (e.g. /etc/yum.repos.local.d).
+        (
+            [
+                "/etc/yum.repos.local.d/cloudlinux.repo",
+                "/etc/yum.repos.local.d/repo.cloudlinux.com_cloudlinux_8_BaseOS_x86_64_os_",
+            ],
+            [
+                "/etc/yum.repos.local.d/repo.cloudlinux.com_cloudlinux_8_BaseOS_x86_64_os_",
+            ],
+        ),
     ),
 )
 def test_problem_packages_installed(repo_file_paths, expected_res):
