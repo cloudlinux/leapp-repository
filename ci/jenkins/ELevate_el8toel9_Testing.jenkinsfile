@@ -14,8 +14,8 @@ pipeline {
         string(name: 'TIMEOUT', defaultValue: '60', description: 'Input timeout value in minutes', trim: true)
         string(name: 'REPO_URL', defaultValue: 'https://github.com/LKHN/el-test-auto-dev.git', description: 'URL of the pipeline repository', trim: true)
         string(name: 'REPO_BRANCH', defaultValue: 'main', description: 'Branch of the pipeline repository', trim: true)
-        choice(name: 'SOURCE_DISTRO_FILTER', choices: ['almalinux-8', 'centos-stream-8', 'eurolinux-8', 'oraclelinux-8', 'rocky-8', 'all'], description: 'Select a source distro or all for ELevation')
-        choice(name: 'TARGET_DISTRO_FILTER', choices: ['almalinux-9', 'centos-stream-9', 'eurolinux-9', 'oraclelinux-9', 'rocky-9', 'all'], description: 'Select a target distro or all to ELevation')
+        choice(name: 'SOURCE_DISTRO_FILTER', choices: ['almalinux-8', 'centos-stream-8', 'oraclelinux-8', 'rocky-8', 'all'], description: 'Select a source distro or all for ELevation')
+        choice(name: 'TARGET_DISTRO_FILTER', choices: ['almalinux-9', 'centos-stream-9', 'oraclelinux-9', 'rocky-9', 'all'], description: 'Select a target distro or all to ELevation')
         choice(name: 'CONF_FILTER', choices: ['minimal', 'docker-ce'], description: 'Select a configuration')
     }
     stages {
@@ -53,11 +53,11 @@ pipeline {
                 axes {
                     axis {
                         name 'SOURCE_DISTRO'
-                        values 'almalinux-8', 'centos-stream-8', 'eurolinux-8', 'oraclelinux-8', 'rocky-8'
+                        values 'almalinux-8', 'centos-stream-8', 'oraclelinux-8', 'rocky-8'
                     }
                     axis {
                         name 'TARGET_DISTRO'
-                        values 'almalinux-9', 'centos-stream-9', 'eurolinux-9', 'oraclelinux-9', 'rocky-9'
+                        values 'almalinux-9', 'centos-stream-9', 'oraclelinux-9', 'rocky-9'
                     }
                 }
                stages {
@@ -169,10 +169,6 @@ def getLeappDataDistro(TARGET_DISTRO) {
 
         case "centos-stream-9":
             leapp_data = TARGET_DISTRO.substring(0, 6)
-            break
-
-        case "eurolinux-9":
-            leapp_data = TARGET_DISTRO.substring(0, 9)
             break
 
         case "oraclelinux-9":

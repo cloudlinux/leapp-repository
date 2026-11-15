@@ -50,11 +50,13 @@ class OpenSshPermitRootLoginCheck(Actor):
             self.process7to8(config)
         elif get_source_major_version() == '8':
             self.process8to9(config)
+        elif int(get_source_major_version()) >= 9:
+            pass
         else:
-            api.current_logger().warning('Unknown source major version: {} (expecting 7 or 8)'
-                                         .format(get_source_major_version()))
+            api.current_logger().warning('Unknown source major version: {}'.format(get_source_major_version()))
 
-    def process7to8(self, config):
+    @staticmethod
+    def process7to8(config):
         # when the config was not modified, we can pass this check and let the
         # rpm handle the configuration file update
         if not config.modified:
@@ -115,7 +117,8 @@ class OpenSshPermitRootLoginCheck(Actor):
                 reporting.Groups([reporting.Groups.INHIBITOR])
             ] + COMMON_RESOURCES)
 
-    def process8to9(self, config):
+    @staticmethod
+    def process8to9(config):
         # RHEL8 default sshd configuration file is not modified: It will get replaced by rpm and
         # root will no longer be able to connect through ssh. This will probably result in many
         # false positives so it will have to be waived a lot
@@ -138,6 +141,11 @@ class OpenSshPermitRootLoginCheck(Actor):
                          'administration or adding a comment into the '
                          'sshd_config next to the "PermitRootLogin yes" directive '
                          'to prevent rpm replacing it during the upgrade.'
+                ),
+                reporting.ExternalLink(
+                    url='https://access.redhat.com/solutions/7003083',
+                    title='Why Leapp Preupgrade for RHEL 8 to 9 getting '
+                          '"Possible problems with remote login using root account" ?'
                 ),
                 reporting.Groups([reporting.Groups.INHIBITOR])
             ] + COMMON_RESOURCES)

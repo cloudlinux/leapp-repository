@@ -1,18 +1,22 @@
 from leapp.actors import Actor
-from leapp.libraries.stdlib import api
-from leapp.tags import DownloadPhaseTag, IPUWorkflowTag
-from leapp.libraries.stdlib import CalledProcessError, run
+from leapp.libraries.actor import updatealmalinuxkey
 from leapp.libraries.common.cllaunch import run_on_cloudlinux
-from leapp import reporting
 from leapp.reporting import Report
+from leapp.tags import DownloadPhaseTag, IPUWorkflowTag
 
 
 class UpdateAlmaLinuxKey(Actor):
     """
-    Import the AlmaLinux GPG key to the system to be able to download upgrade packages.
+    Import the target distribution's GPG keys so the upgrade packages verify.
 
-    The AlmaLinux 8 packages will not be accepted by the system otherwise.
-    See https://almalinux.org/blog/2023-12-20-almalinux-8-key-update/
+    This used to fetch https://repo.almalinux.org/almalinux/RPM-GPG-KEY-AlmaLinux
+    over the network. That URL is unversioned and serves the AlmaLinux 8 keys -
+    it was added for the 2023 AlmaLinux 8 key rotation and never made
+    version-aware - so on any other target it imports the wrong key.
+
+    leapp already ships the right keys per target major, so they are imported
+    from disk: no network dependency, and the keys are the ones this package was
+    built against.
     """
 
     name = "update_almalinux_key"
@@ -20,35 +24,6 @@ class UpdateAlmaLinuxKey(Actor):
     produces = (Report,)
     tags = (IPUWorkflowTag, DownloadPhaseTag.Before)
 
-    alma_key_url = "https://repo.almalinux.org/almalinux/RPM-GPG-KEY-AlmaLinux"
-
     @run_on_cloudlinux
     def process(self):
-        switch_cmd = ["rpm", "--import", self.alma_key_url]
-        try:
-            res = run(switch_cmd)
-            self.log.debug('Command "%s" result: %s', switch_cmd, res)
-        except CalledProcessError as e:
-            reporting.create_report(
-                [
-                    reporting.Title(
-                        "Failed to import the AlmaLinux GPG key."
-                    ),
-                    reporting.Summary(
-                        "Command {} failed with exit code {}."
-                        " The most probable cause of that is a network issue.".format(e.command, e.exit_code)
-                    ),
-                    reporting.Remediation(
-                        hint="Check the state of this system's network connection and the reachability of the key URL."
-                    ),
-                    reporting.Severity(reporting.Severity.HIGH),
-                    reporting.Groups(
-                        [reporting.Groups.OS_FACTS, reporting.Groups.NETWORK]
-                    ),
-                    reporting.Groups([reporting.Groups.INHIBITOR]),
-                ]
-            )
-        except OSError as e:
-            api.current_logger().error(
-                "Could not call an RPM command: Message: %s", str(e), exc_info=True
-            )
+        updatealmalinuxkey.process()

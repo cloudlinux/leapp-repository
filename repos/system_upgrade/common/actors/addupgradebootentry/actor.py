@@ -5,7 +5,20 @@ from leapp.libraries.actor.addupgradebootentry import (
     fix_grub_config_error,
     get_hybrid_bios_efi_configs,
 )
-from leapp.models import BootContent, FirmwareFacts, GrubConfigError, TargetKernelCmdlineArgTasks, TransactionDryRun
+from leapp.models import (
+    ArmWorkaroundEFIBootloaderInfo,
+    BootContent,
+    FirmwareFacts,
+    GrubConfigError,
+    KernelCmdline,
+    LateTargetKernelCmdlineArgTasks,
+    LiveImagePreparationInfo,
+    LiveModeArtifacts,
+    LiveModeConfig,
+    TargetKernelCmdlineArgTasks,
+    TransactionDryRun,
+    UpgradeKernelCmdlineArgTasks
+)
 from leapp.tags import InterimPreparationPhaseTag, IPUWorkflowTag
 
 
@@ -17,8 +30,20 @@ class AddUpgradeBootEntry(Actor):
     """
 
     name = 'add_upgrade_boot_entry'
-    consumes = (BootContent, GrubConfigError, FirmwareFacts, TransactionDryRun)
-    produces = (TargetKernelCmdlineArgTasks,)
+    consumes = (
+        ArmWorkaroundEFIBootloaderInfo,
+        BootContent,
+        GrubConfigError,
+        FirmwareFacts,
+        LiveImagePreparationInfo,
+        LiveModeArtifacts,
+        LiveModeConfig,
+        KernelCmdline,
+        TransactionDryRun,
+        TargetKernelCmdlineArgTasks,
+        UpgradeKernelCmdlineArgTasks
+    )
+    produces = (LateTargetKernelCmdlineArgTasks,)
     tags = (IPUWorkflowTag, InterimPreparationPhaseTag)
 
     def process(self):

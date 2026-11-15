@@ -1,18 +1,18 @@
 import mock
-import pytest
 
 from leapp.libraries.common import rpms
 from leapp.libraries.common.config import mock_configs
 from leapp.models import (
     DistributionSignedRPM,
+    Distro,
     fields,
-    InstalledRedHatSignedRPM,
     InstalledRPM,
     InstalledUnsignedRPM,
     IPUConfig,
     Model,
     OSRelease,
-    RPM
+    RPM,
+    ThirdPartyRPM
 )
 
 RH_PACKAGER = 'Red Hat, Inc. <http://bugzilla.redhat.com/bugzilla>'
@@ -31,16 +31,14 @@ class MockModel(Model):
     int_field = fields.Integer(default=42)
 
 
-@pytest.mark.skip("Broken test")
 def test_no_installed_rpms(current_actor_context):
     current_actor_context.run(config_model=mock_configs.CONFIG)
     assert current_actor_context.consume(DistributionSignedRPM)
-    assert current_actor_context.consume(InstalledRedHatSignedRPM)
     assert current_actor_context.consume(InstalledUnsignedRPM)
+    assert current_actor_context.consume(ThirdPartyRPM)
 
 
-@pytest.mark.skip("Broken test")
-def test_actor_execution_with_signed_unsigned_data(current_actor_context):
+def test_actor_execution_with_signed_and_third_party_pkgs(current_actor_context):
     installed_rpm = [
         RPM(name='sample01', version='0.1', release='1.sm01', epoch='1', packager=RH_PACKAGER, arch='noarch',
             pgpsig='RSA/SHA256, Mon 01 Jan 1970 00:00:00 AM -03, Key ID 199e2f91fd431d51'),
@@ -65,14 +63,13 @@ def test_actor_execution_with_signed_unsigned_data(current_actor_context):
     current_actor_context.run(config_model=mock_configs.CONFIG)
     assert current_actor_context.consume(DistributionSignedRPM)
     assert len(current_actor_context.consume(DistributionSignedRPM)[0].items) == 5
-    assert current_actor_context.consume(InstalledRedHatSignedRPM)
-    assert len(current_actor_context.consume(InstalledRedHatSignedRPM)[0].items) == 5
     assert current_actor_context.consume(InstalledUnsignedRPM)
     assert len(current_actor_context.consume(InstalledUnsignedRPM)[0].items) == 4
+    assert current_actor_context.consume(ThirdPartyRPM)
+    assert len(current_actor_context.consume(ThirdPartyRPM)[0].items) == 4
 
 
-@pytest.mark.skip("Broken test")
-def test_actor_execution_with_signed_unsigned_data_centos(current_actor_context):
+def test_actor_execution_with_signed_and_third_party_pkgs_centos(current_actor_context):
     CENTOS_PACKAGER = 'CentOS BuildSystem <http://bugs.centos.org>'
     config = mock_configs.CONFIG
 
@@ -83,6 +80,7 @@ def test_actor_execution_with_signed_unsigned_data_centos(current_actor_context)
         version='7 (Core)',
         version_id='7'
     )
+    config.distro = Distro(source='centos', target='centos')
 
     installed_rpm = [
         RPM(name='sample01', version='0.1', release='1.sm01', epoch='1', packager=CENTOS_PACKAGER, arch='noarch',
@@ -108,13 +106,44 @@ def test_actor_execution_with_signed_unsigned_data_centos(current_actor_context)
     current_actor_context.run(config_model=config)
     assert current_actor_context.consume(DistributionSignedRPM)
     assert len(current_actor_context.consume(DistributionSignedRPM)[0].items) == 3
-    assert current_actor_context.consume(InstalledRedHatSignedRPM)
-    assert not current_actor_context.consume(InstalledRedHatSignedRPM)[0].items
     assert current_actor_context.consume(InstalledUnsignedRPM)
     assert len(current_actor_context.consume(InstalledUnsignedRPM)[0].items) == 6
+    assert current_actor_context.consume(ThirdPartyRPM)
+    assert len(current_actor_context.consume(ThirdPartyRPM)[0].items) == 6
 
 
-@pytest.mark.skip("Broken test")
+def test_actor_execution_with_signed_unsigned_data_almalinux(current_actor_context):
+    ALMALINUX_PACKAGER = 'AlmaLinux Packaging Team <packager@almalinux.org>'
+    config = mock_configs.CONFIG
+
+    config.os_release = OSRelease(
+        release_id='almalinux',
+        name='AlmaLinux',
+        pretty_name='AlmaLinux 8.10 (Cerulean Leopard)',
+        version='8.10 (Cerulean Leopard)',
+        version_id='8.10'
+    )
+    config.distro = Distro(source='almalinux', target='almalinux')
+
+    installed_rpm = [
+        RPM(name='sample01', version='0.1', release='1.sm01', epoch='1', packager=ALMALINUX_PACKAGER, arch='noarch',
+            pgpsig='RSA/SHA256, Mon 01 Jan 1970 00:00:00 AM -03, Key ID 2ae81e8aced7258b'),
+        RPM(name='sample02', version='0.1', release='1.sm01', epoch='1', packager=ALMALINUX_PACKAGER, arch='noarch',
+            pgpsig='SOME_OTHER_SIG_X'),
+        RPM(name='sample03', version='0.1', release='1.sm01', epoch='1', packager=ALMALINUX_PACKAGER, arch='noarch',
+            pgpsig='RSA/SHA256, Mon 01 Jan 1970 00:00:00 AM -03, Key ID 51d6647ec21ad6ea'),
+        RPM(name='sample04', version='0.1', release='1.sm01', epoch='1', packager=ALMALINUX_PACKAGER, arch='noarch',
+            pgpsig='SOME_OTHER_SIG_X'),
+    ]
+
+    current_actor_context.feed(InstalledRPM(items=installed_rpm))
+    current_actor_context.run(config_model=config)
+    assert current_actor_context.consume(DistributionSignedRPM)
+    assert len(current_actor_context.consume(DistributionSignedRPM)[0].items) == 2
+    assert current_actor_context.consume(InstalledUnsignedRPM)
+    assert len(current_actor_context.consume(InstalledUnsignedRPM)[0].items) == 2
+
+
 def test_actor_execution_with_unknown_distro(current_actor_context):
     config = mock_configs.CONFIG
 
@@ -125,15 +154,15 @@ def test_actor_execution_with_unknown_distro(current_actor_context):
         version='7 (Core)',
         version_id='7'
     )
+    config.distro = Distro(source='myos', target='myos')
 
     current_actor_context.feed(InstalledRPM(items=[]))
     current_actor_context.run(config_model=config)
     assert not current_actor_context.consume(DistributionSignedRPM)
-    assert not current_actor_context.consume(InstalledRedHatSignedRPM)
     assert not current_actor_context.consume(InstalledUnsignedRPM)
+    assert not current_actor_context.consume(ThirdPartyRPM)
 
 
-@pytest.mark.skip("Broken test")
 def test_all_rpms_signed(current_actor_context):
     installed_rpm = [
         RPM(name='sample01', version='0.1', release='1.sm01', epoch='1', packager=RH_PACKAGER, arch='noarch',
@@ -150,12 +179,10 @@ def test_all_rpms_signed(current_actor_context):
     current_actor_context.run(config_model=mock_configs.CONFIG_ALL_SIGNED)
     assert current_actor_context.consume(DistributionSignedRPM)
     assert len(current_actor_context.consume(DistributionSignedRPM)[0].items) == 4
-    assert current_actor_context.consume(InstalledRedHatSignedRPM)
-    assert len(current_actor_context.consume(InstalledRedHatSignedRPM)[0].items) == 4
     assert not current_actor_context.consume(InstalledUnsignedRPM)[0].items
+    assert not current_actor_context.consume(ThirdPartyRPM)[0].items
 
 
-@pytest.mark.skip("Broken test")
 def test_katello_pkg_goes_to_signed(current_actor_context):
     installed_rpm = [
         RPM(name='katello-ca-consumer-vm-098.example.com',
@@ -171,12 +198,10 @@ def test_katello_pkg_goes_to_signed(current_actor_context):
     current_actor_context.run(config_model=mock_configs.CONFIG_ALL_SIGNED)
     assert current_actor_context.consume(DistributionSignedRPM)
     assert len(current_actor_context.consume(DistributionSignedRPM)[0].items) == 1
-    assert current_actor_context.consume(InstalledRedHatSignedRPM)
-    assert len(current_actor_context.consume(InstalledRedHatSignedRPM)[0].items) == 1
     assert not current_actor_context.consume(InstalledUnsignedRPM)[0].items
+    assert not current_actor_context.consume(ThirdPartyRPM)[0].items
 
 
-@pytest.mark.skip("Broken test")
 def test_gpg_pubkey_pkg(current_actor_context):
     installed_rpm = [
         RPM(name='gpg-pubkey', version='0.1', release='1.sm01', epoch='1', packager=RH_PACKAGER, arch='noarch',
@@ -189,10 +214,10 @@ def test_gpg_pubkey_pkg(current_actor_context):
     current_actor_context.run(config_model=mock_configs.CONFIG)
     assert current_actor_context.consume(DistributionSignedRPM)
     assert len(current_actor_context.consume(DistributionSignedRPM)[0].items) == 2
-    assert current_actor_context.consume(InstalledRedHatSignedRPM)
-    assert len(current_actor_context.consume(InstalledRedHatSignedRPM)[0].items) == 2
     assert current_actor_context.consume(InstalledUnsignedRPM)
     assert not current_actor_context.consume(InstalledUnsignedRPM)[0].items
+    assert current_actor_context.consume(ThirdPartyRPM)
+    assert not current_actor_context.consume(ThirdPartyRPM)[0].items
 
 
 def test_create_lookup():
@@ -234,7 +259,6 @@ def test_create_lookup():
         assert list() == lookup
 
 
-@pytest.mark.skip("Broken test")
 def test_has_package(current_actor_context):
     installed_rpm = [
         RPM(name='sample01', version='0.1', release='1.sm01', epoch='1', packager=RH_PACKAGER, arch='noarch',
@@ -247,7 +271,7 @@ def test_has_package(current_actor_context):
     current_actor_context.run(config_model=mock_configs.CONFIG)
     assert rpms.has_package(DistributionSignedRPM, 'sample01', context=current_actor_context)
     assert not rpms.has_package(DistributionSignedRPM, 'nosuchpackage', context=current_actor_context)
-    assert rpms.has_package(InstalledRedHatSignedRPM, 'sample01', context=current_actor_context)
-    assert not rpms.has_package(InstalledRedHatSignedRPM, 'nosuchpackage', context=current_actor_context)
     assert rpms.has_package(InstalledUnsignedRPM, 'sample02', context=current_actor_context)
     assert not rpms.has_package(InstalledUnsignedRPM, 'nosuchpackage', context=current_actor_context)
+    assert rpms.has_package(ThirdPartyRPM, 'sample02', context=current_actor_context)
+    assert not rpms.has_package(ThirdPartyRPM, 'nosuchpackage', context=current_actor_context)

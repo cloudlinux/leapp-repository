@@ -4,7 +4,7 @@
 name: Differential ShellCheck
 on:
   pull_request:
-    branches: [master]
+    branches: [main]
 
 permissions:
   contents: read
@@ -17,13 +17,13 @@ jobs:
       security-events: write
       pull-requests: write
 
-    steps: 
+    steps:
       - name: Repository checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Differential ShellCheck
-        uses: redhat-plumbers-in-action/differential-shellcheck@v3
+        uses: redhat-plumbers-in-action/differential-shellcheck@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

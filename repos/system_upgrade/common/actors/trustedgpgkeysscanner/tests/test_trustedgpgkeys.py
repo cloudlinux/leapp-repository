@@ -32,7 +32,7 @@ def _get_test_installed_rmps(fps):
     return InstalledRPM(items=rpms)
 
 
-class MockedGetGpgFromFile(object):
+class MockedGetGpgFromFile:
     def __init__(self, file_fps_tuples):
         # e.g. file_fps_tuple = [('/mydir/myfile', ['0000ff31', '0000ff32'])]
         self._data = {}
@@ -40,7 +40,7 @@ class MockedGetGpgFromFile(object):
             self._data[fname] = fps
 
     def get_files(self):
-        return self._data.keys()  # noqa: W1655; pylint: disable=dict-keys-not-iterating
+        return self._data.keys()
 
     def __call__(self, fname):
         return self._data.get(fname, [])
@@ -59,6 +59,7 @@ def test_get_pubkeys(monkeypatch):
         return [os.path.basename(i) for i in mocked_gpg_files.get_files()]
 
     monkeypatch.setattr(trustedgpgkeys.os, 'listdir', _mocked_listdir)
+    monkeypatch.setattr(trustedgpgkeys.os.path, 'isdir', lambda path: True)
     monkeypatch.setattr(trustedgpgkeys, 'get_path_to_gpg_certs', lambda: ['/mydir/'])
     monkeypatch.setattr(trustedgpgkeys, 'get_gpg_fp_from_file', mocked_gpg_files)
 
@@ -85,3 +86,21 @@ def test_process(monkeypatch):
     assert api.produce.called == 1
     assert isinstance(api.produce.model_instances[0], TrustedGpgKeys)
     assert reporting.create_report.called == 0
+
+
+def test_missing_trusted_dir_is_skipped(monkeypatch):
+    """A trusted-key directory that does not exist must not kill the actor.
+
+    get_path_to_gpg_certs() returns a path per target distro and major version,
+    and nothing guarantees the tree has one for every combination. Before this,
+    os.listdir raised FileNotFoundError straight out of an actor - the CL9 -> CL10
+    run died on distro/cloudlinux/rpm-gpg/10 with no report and no inhibitor,
+    just a terminated actor.
+    """
+    monkeypatch.setattr(
+        trustedgpgkeys, 'get_path_to_gpg_certs',
+        lambda: ['/nonexistent/one', '/nonexistent/two']
+    )
+    monkeypatch.setattr(trustedgpgkeys, 'get_pubkeys_from_rpms', lambda rpms: [])
+
+    assert trustedgpgkeys._get_pubkeys(None) == []

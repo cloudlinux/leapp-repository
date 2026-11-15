@@ -3,7 +3,7 @@ from leapp.libraries.stdlib import api, CalledProcessError, run
 from leapp.models import SELinuxModule, SELinuxModules
 
 
-class run_mocked(object):
+class run_mocked:
     def __init__(self):
         self.args = []
         self.called = 0
@@ -24,6 +24,7 @@ class run_mocked(object):
                     self.removed_modules.add(self.args[idx + 1])
         else:
             self.non_semodule_calls += 1
+            stdout = []
 
         return {'stdout': stdout}
 

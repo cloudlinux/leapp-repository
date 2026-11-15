@@ -217,7 +217,17 @@ def get_sysctls_status():
 
 def get_repositories_status():
     """ Get a basic information about YUM repositories installed in the system """
-    return RepositoriesFacts(repositories=repofileutils.get_parsed_repofiles())
+    try:
+        return RepositoriesFacts(repositories=repofileutils.get_parsed_repofiles())
+    except repofileutils.InvalidRepoDefinition as e:
+        raise StopActorExecutionError(
+            message="Failed to parse repositories on the source system: {}".format(str(e)),
+            details={
+                'hint': 'Ensure the repository definition is correct or remove it '
+                        'if the repository is not needed anymore. '
+                        'This issue is typically caused by missing definition of the name field. '
+                        'For more information, see: https://access.redhat.com/solutions/6969001.'
+            })
 
 
 def get_selinux_status():
@@ -284,12 +294,35 @@ def get_firewalls_status():
     )
 
 
+def _get_secure_boot_state():
+    try:
+        stdout = run(['mokutil', '--sb-state'])['stdout']
+        return 'enabled' in stdout
+    except CalledProcessError as e:
+        if "doesn't support Secure Boot" in e.stderr:
+            return None
+
+        raise StopActorExecutionError('Failed to determine SecureBoot state: {}'.format(e))
+    except OSError as e:
+        # shim depends on mokutil, if it's not installed assume SecureBoot is disabled
+        api.current_logger().debug(
+            'Failed to execute mokutil, assuming SecureBoot is disabled: {}'.format(e)
+        )
+        return False
+
+
 def get_firmware():
     firmware = 'efi' if os.path.isdir('/sys/firmware/efi') else 'bios'
+
+    ppc64le_opal = None
     if architecture.matches_architecture(architecture.ARCH_PPC64LE):
-        ppc64le_opal = bool(os.path.isdir('/sys/firmware/opal/'))
-        return FirmwareFacts(firmware=firmware, ppc64le_opal=ppc64le_opal)
-    return FirmwareFacts(firmware=firmware)
+        ppc64le_opal = os.path.isdir('/sys/firmware/opal/')
+
+    is_secureboot = None
+    if firmware == 'efi':
+        is_secureboot = _get_secure_boot_state()
+
+    return FirmwareFacts(firmware=firmware, ppc64le_opal=ppc64le_opal, secureboot_enabled=is_secureboot)
 
 
 @aslist

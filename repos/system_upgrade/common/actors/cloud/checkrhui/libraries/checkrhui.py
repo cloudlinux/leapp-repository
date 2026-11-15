@@ -2,22 +2,36 @@ import itertools
 import os
 from collections import namedtuple
 
+import leapp.configs.common.rhui as rhui_config_lib
 from leapp import reporting
+from leapp.configs.common.rhui import (  # Import all config fields so we are not using their name attributes directly
+    RhuiCloudProvider,
+    RhuiCloudVariant,
+    RhuiSourcePkgs,
+    RhuiTargetPkgs,
+    RhuiTargetRepositoriesToUse,
+    RhuiUpgradeFiles,
+    RhuiUseConfig
+)
 from leapp.exceptions import StopActorExecutionError
 from leapp.libraries.common import rhsm, rhui
 from leapp.libraries.common.config import version
 from leapp.libraries.stdlib import api
 from leapp.models import (
     CopyFile,
+    CustomTargetRepository,
     DNFPluginTask,
     InstalledRPM,
+    RHELTargetRepository,
     RHUIInfo,
     RpmTransactionTasks,
+    TargetRepositories,
     TargetRHUIPostInstallTasks,
     TargetRHUIPreInstallTasks,
     TargetRHUISetupInfo,
     TargetUserSpacePreupgradeTasks
 )
+from leapp.utils.deprecation import suppress_deprecation
 
 MatchingSetup = namedtuple('MatchingSetup', ['family', 'description'])
 
@@ -30,8 +44,98 @@ def into_set(pkgs):
     return set(pkgs)
 
 
+def fmt_matching_rhui_setups(setups):
+    def fmt_matching_rhui_setup(matching_setup):
+        if isinstance(matching_setup, MatchingSetup):
+            return '(ver={os_ver}, variant={variant}, clients={clients})'.format(
+                os_ver=matching_setup.description.os_version,
+                variant=matching_setup.family,
+                clients=matching_setup.description.clients
+            )
+        # Just a RHUISetup
+        return '(ver={os_ver}, clients={clients})'.format(
+            os_ver=matching_setup.os_version,
+            clients=matching_setup.clients
+        )
+
+    return ', '.join(fmt_matching_rhui_setup(setup) for setup in setups)
+
+
+def select_chronologically_closest_setups(matching_setups, optimal_minor_ver, minor_ver_extractor, system_role):
+    if not matching_setups:
+        return None
+
+    # Select only setups that are chronologically closest
+    highest_minor_less_than_optimal = 0
+    for setup in matching_setups:
+        setup_minor = minor_ver_extractor(setup)
+
+        less_than_src_minor = (setup_minor <= optimal_minor_ver) if optimal_minor_ver else True
+        higher_than_previous = setup_minor > highest_minor_less_than_optimal
+        if less_than_src_minor and higher_than_previous:
+            highest_minor_less_than_optimal = setup_minor
+
+    msg = 'RHUI setups matching installed clients and %s major version: %s'
+    api.current_logger().debug(msg, system_role, fmt_matching_rhui_setups(matching_setups))
+
+    chronologically_closest_setups = [
+        setup for setup in matching_setups if minor_ver_extractor(setup) == highest_minor_less_than_optimal
+    ]
+    if chronologically_closest_setups:
+        matching_setups = chronologically_closest_setups
+        msg = 'Further narrowed matching setups based on their %s minor version: %s'
+        api.current_logger().debug(msg, system_role, fmt_matching_rhui_setups(matching_setups))
+    else:
+        newest_minor = max(matching_setups, key=minor_ver_extractor).os_version[1]
+        matching_setups = [setup for setup in matching_setups if minor_ver_extractor(setup) == newest_minor]
+        api.current_logger().warning(
+            'The %s predates any of the setups that match the installed clients. Using newest matching: %s',
+            system_role,
+            fmt_matching_rhui_setups(matching_setups)
+        )
+    return matching_setups
+
+
+def error_due_to_ambiguous_source_setups(match0, match1):
+    msg = 'Could not identify the source RHUI setup (ambiguous setup)'
+
+    variant_detail_table = {
+       rhui.RHUIVariant.ORDINARY: '',
+       rhui.RHUIVariant.SAP: ' for SAP',
+       rhui.RHUIVariant.SAP_APPS: ' for SAP Applications',
+       rhui.RHUIVariant.SAP_HA: ' for SAP HA',
+    }
+
+    variant0_detail = variant_detail_table[match0.family.variant]
+    clients0 = ' '.join(match0.description.clients)
+
+    variant1_detail = variant_detail_table[match1.family.variant]
+    clients1 = ' '.join(match1.description.clients)
+
+    details = ('Leapp uses client-based identification of the used RHUI setup in order to determine what the '
+               'target RHEL content should be. According to the installed RHUI clients the system should be '
+               'RHEL {os_major}{variant0_detail} ({provider0}) (identified by clients {clients0}) but also '
+               'RHEL {os_major}{variant1_detail} ({provider1}) (identified by clients {clients1}).')
+    details = details.format(os_major=version.get_source_major_version(),
+                             variant0_detail=variant0_detail, clients0=clients0, provider0=match0.family.provider,
+                             variant1_detail=variant1_detail, clients1=clients1, provider1=match1.family.provider)
+
+    raise StopActorExecutionError(message=msg, details={'details': details})
+
+
+def _get_canonical_version_tuple(version):
+    ver_fragments = version.split('.')
+    major = int(ver_fragments[0])
+    try:
+        minor = int(ver_fragments[1]) if len(ver_fragments) > 1 else None
+    except ValueError as error:
+        api.current_logger().debug('Failed to convert minor version into integer: %s', error)
+        minor = None  # Unlikely, the code using this can handle None as minor
+    return (major, minor)
+
+
 def find_rhui_setup_matching_src_system(installed_pkgs, rhui_map):
-    src_ver = version.get_source_major_version()
+    src_major_ver, src_minor_ver = _get_canonical_version_tuple(version.get_source_version())
     arch = api.current_actor().configuration.architecture
 
     matching_setups = []
@@ -40,8 +144,9 @@ def find_rhui_setup_matching_src_system(installed_pkgs, rhui_map):
             continue
 
         for setup in family_setups:
-            if setup.os_version != src_ver:
+            if setup.os_version[0] != src_major_ver:
                 continue
+
             if setup.clients.issubset(installed_pkgs):
                 matching_setups.append(MatchingSetup(family=rhui_family, description=setup))
 
@@ -50,50 +155,54 @@ def find_rhui_setup_matching_src_system(installed_pkgs, rhui_map):
 
     # In case that a RHUI variant uses a combination of clients identify the maximal client set
     matching_setups_by_size = sorted(matching_setups, key=lambda match: -len(match.description.clients))
+    max_client_cnt = len(matching_setups_by_size[0].description.clients)
+    matching_setups = tuple(
+        setup for setup in matching_setups if len(setup.description.clients) == max_client_cnt
+    )
+    msg = 'Identified RHUI setups with the largest installed client sets: %s'
+    api.current_logger().debug(msg, fmt_matching_rhui_setups(matching_setups))
 
-    match = matching_setups_by_size[0]  # Matching setup with the highest number of clients
+    if not matching_setups:
+        return None
+
+    # Since we allow minor versions in RHUI table, we might have multiple entries that are identified by the
+    # same clients. E.g.:
+    # RHEL8.4 with client X
+    # RHEL8.9 with client X (but with some modified setup info)
+    # If upgrading from 8.6, select 8.4. If upgrading from 8.10, select 8.9
+    matching_setups = select_chronologically_closest_setups(matching_setups,
+                                                            src_minor_ver,
+                                                            lambda setup: setup.description.os_version[1],
+                                                            'source')
+
+    # If we fail to identify chronologically proper setup, we always return a nonempty list
+
+    match = matching_setups[0]  # Matching setup with the highest number of clients
     if len(matching_setups) == 1:
         return match
 
-    if len(matching_setups_by_size[0].description.clients) == len(matching_setups_by_size[1].description.clients):
-        # Should not happen as no cloud providers use multi-client setups (at the moment)
-        msg = 'Could not identify the source RHUI setup (ambiguous setup)'
-
-        variant_detail_table = {
-           rhui.RHUIVariant.ORDINARY: '',
-           rhui.RHUIVariant.SAP: ' for SAP',
-           rhui.RHUIVariant.SAP_APPS: ' for SAP Applications',
-           rhui.RHUIVariant.SAP_HA: ' for SAP HA',
-        }
-
-        match0 = matching_setups_by_size[0]
-        variant0_detail = variant_detail_table[match0.family.variant]
-        clients0 = ' '.join(match0.description.clients)
-
-        match1 = matching_setups_by_size[1]
-        variant1_detail = variant_detail_table[match1.family.variant]
-        clients1 = ' '.join(match1.description.clients)
-
-        details = ('Leapp uses client-based identification of the used RHUI setup in order to determine what the '
-                   'target RHEL content should be. According to the installed RHUI clients the system should be '
-                   'RHEL {os_major}{variant0_detail} ({provider0}) (identified by clients {clients0}) but also '
-                   'RHEL {os_major}{variant1_detail} ({provider1}) (identified by clients {clients1}).')
-        details = details.format(os_major=version.get_source_major_version(),
-                                 variant0_detail=variant0_detail, clients0=clients0, provider0=match0.family.provider,
-                                 variant1_detail=variant1_detail, clients1=clients1, provider1=match1.family.provider)
-
-        raise StopActorExecutionError(message=msg, details={'details': details})
-
-    return match
+    other_match = matching_setups[1]
+    error_due_to_ambiguous_source_setups(match, other_match)
+    return None  # Unreachable
 
 
 def determine_target_setup_desc(cloud_map, rhui_family):
     variant_setups = cloud_map[rhui_family]
-    target_major = version.get_target_major_version()
 
-    for setup in variant_setups:
-        if setup.os_version == target_major:
-            return setup
+    target_major, target_minor = _get_canonical_version_tuple(version.get_target_version())
+
+    matching_setups = [setup for setup in variant_setups if setup.os_version[0] == target_major]
+    msg = 'Identified target RHUI setups matching target major: %s'
+    api.current_logger().debug(msg, fmt_matching_rhui_setups(matching_setups))
+
+    matching_setups = select_chronologically_closest_setups(matching_setups,
+                                                            target_minor,
+                                                            lambda setup: setup.os_version[1],
+                                                            'target')
+
+    if matching_setups:
+        return next(iter(matching_setups))
+
     return None
 
 
@@ -142,11 +251,21 @@ def customize_rhui_setup_for_aws(rhui_family, setup_info):
 
     target_version = version.get_target_major_version()
     if target_version == '8':
-        return  # The rhel8 plugin is packed into leapp-rhui-aws as we need python2 compatible client
+        # RHEL8 rh-amazon-rhui-client depends on amazon-libdnf-plugin that depends
+        # essentially on the entire RHEL8 RPM stack, so we cannot just swap the clients
+        # The leapp-rhui-aws will provide all necessary files to access entire RHEL8 content
+        setup_info.bootstrap_target_client = False
+        return
+    if target_version == '9':
+        amazon_plugin_copy_task = CopyFile(src='/usr/lib/python3.9/site-packages/dnf-plugins/amazon-id.py',
+                                           dst='/usr/lib/python3.6/site-packages/dnf-plugins/')
+        setup_info.postinstall_tasks.files_to_copy.append(amazon_plugin_copy_task)
+        return
 
-    amazon_plugin_copy_task = CopyFile(src='/usr/lib/python3.9/site-packages/dnf-plugins/amazon-id.py',
-                                       dst='/usr/lib/python3.6/site-packages/dnf-plugins/')
-    setup_info.postinstall_tasks.files_to_copy.append(amazon_plugin_copy_task)
+    # For 9>10 and higher we give up trying to do client swapping since the client has too many dependencies
+    # from target system's repositories. Our leapp-rhui-aws package will carry all of the repos provided
+    # by the client.
+    setup_info.bootstrap_target_client = False
 
 
 def produce_rhui_info_to_setup_target(rhui_family, source_setup_desc, target_setup_desc):
@@ -192,11 +311,11 @@ def produce_rhui_info_to_setup_target(rhui_family, source_setup_desc, target_set
     api.produce(rhui_info)
 
 
-def produce_rpms_to_install_into_target(source_setup, target_setup):
-    to_install = sorted(target_setup.clients - source_setup.clients)
-    to_remove = sorted(source_setup.clients - target_setup.clients)
+def produce_rpms_to_install_into_target(source_clients, target_clients):
+    to_install = sorted(target_clients - source_clients)
+    to_remove = sorted(source_clients - target_clients)
 
-    api.produce(TargetUserSpacePreupgradeTasks(install_rpms=sorted(target_setup.clients)))
+    api.produce(TargetUserSpacePreupgradeTasks(install_rpms=sorted(target_clients)))
     if to_install or to_remove:
         api.produce(RpmTransactionTasks(to_install=to_install, to_remove=to_remove))
 
@@ -217,7 +336,86 @@ def inform_about_upgrade_with_rhui_without_no_rhsm():
     return False
 
 
+def emit_rhui_setup_tasks_based_on_config(rhui_config_dict):
+    config_upgrade_files = rhui_config_dict[RhuiUpgradeFiles.name]
+
+    nonexisting_files_to_copy = []
+    for source_path in config_upgrade_files:
+        if not os.path.exists(source_path):
+            nonexisting_files_to_copy.append(source_path)
+
+    if nonexisting_files_to_copy:
+        details_lines = ['The following files were not found:']
+        # Use .format and put backticks around paths so that weird unicode spaces will be easily seen
+        details_lines.extend('  - `{0}`'.format(path) for path in nonexisting_files_to_copy)
+        details = '\n'.join(details_lines)
+
+        reason = 'RHUI config lists nonexisting files in its `{0}` field.'.format(RhuiUpgradeFiles.name)
+        raise StopActorExecutionError(reason, details={'details': details})
+
+    files_to_copy_into_overlay = [CopyFile(src=key, dst=value) for key, value in config_upgrade_files.items()]
+    preinstall_tasks = TargetRHUIPreInstallTasks(files_to_copy_into_overlay=files_to_copy_into_overlay)
+
+    target_client_setup_info = TargetRHUISetupInfo(
+        preinstall_tasks=preinstall_tasks,
+        postinstall_tasks=TargetRHUIPostInstallTasks(),
+        bootstrap_target_client=False,  # We don't need to install the client into overlay - user provided all files
+    )
+
+    rhui_info = RHUIInfo(
+        provider=rhui_config_dict[RhuiCloudProvider.name],
+        variant=rhui_config_dict[RhuiCloudVariant.name],
+        src_client_pkg_names=rhui_config_dict[RhuiSourcePkgs.name],
+        target_client_pkg_names=rhui_config_dict[RhuiTargetPkgs.name],
+        target_client_setup_info=target_client_setup_info
+    )
+    api.produce(rhui_info)
+
+
+@suppress_deprecation(RHELTargetRepository)  # member of TargetRepositories
+def request_configured_repos_to_be_enabled(rhui_config):
+    config_repos_to_enable = rhui_config[RhuiTargetRepositoriesToUse.name]
+    custom_repos = [CustomTargetRepository(repoid=repoid) for repoid in config_repos_to_enable]
+    if custom_repos:
+        target_repos = TargetRepositories(custom_repos=custom_repos, rhel_repos=[], distro_repos=[])
+        api.produce(target_repos)
+
+
+def stop_with_err_if_config_missing_fields(config):
+    required_fields = [
+        RhuiTargetRepositoriesToUse,
+        RhuiCloudProvider,
+        # RhuiCloudVariant, <- this is not required
+        RhuiSourcePkgs,
+        RhuiTargetPkgs,
+        RhuiUpgradeFiles,
+    ]
+
+    missing_fields = tuple(field for field in required_fields if not config[field.name])
+    if missing_fields:
+        field_names = (field.name for field in missing_fields)
+        missing_fields_str = ', '.join(field_names)
+        details = 'The following required RHUI config fields are missing or they are set to an empty value: {}'
+        details = details.format(missing_fields_str)
+        raise StopActorExecutionError('Provided RHUI config is missing values for required fields.',
+                                      details={'details': details})
+
+
 def process():
+    rhui_config = api.current_actor().config[rhui_config_lib.RHUI_CONFIG_SECTION]
+
+    if rhui_config[RhuiUseConfig.name]:
+        api.current_logger().info('Skipping RHUI upgrade auto-configuration - using provided config instead.')
+        stop_with_err_if_config_missing_fields(rhui_config)
+        emit_rhui_setup_tasks_based_on_config(rhui_config)
+
+        src_clients = set(rhui_config[RhuiSourcePkgs.name])
+        target_clients = set(rhui_config[RhuiTargetPkgs.name])
+        produce_rpms_to_install_into_target(src_clients, target_clients)
+
+        request_configured_repos_to_be_enabled(rhui_config)
+        return
+
     installed_rpm = itertools.chain(*[installed_rpm_msg.items for installed_rpm_msg in api.consume(InstalledRPM)])
     installed_pkgs = {rpm.name for rpm in installed_rpm}
 
@@ -243,7 +441,9 @@ def process():
     # Instruction on how to access the target content
     produce_rhui_info_to_setup_target(src_rhui_setup.family, src_rhui_setup.description, target_setup_desc)
 
-    produce_rpms_to_install_into_target(src_rhui_setup.description, target_setup_desc)
+    source_clients = src_rhui_setup.description.clients
+    target_clients = target_setup_desc.clients
+    produce_rpms_to_install_into_target(source_clients, target_clients)
 
     if src_rhui_setup.family.provider == rhui.RHUIProvider.AWS:
         # We have to disable Amazon-id plugin in the initramdisk phase as there is no network

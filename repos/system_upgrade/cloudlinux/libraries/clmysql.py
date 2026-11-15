@@ -28,6 +28,14 @@ ClMysqlTypeResult = collections.namedtuple(
 # Both files are present on CL7 and CL8+ when governor-mysql is installed.
 GOVERNOR_INSTALLED_TYPE_FILE = "/usr/share/lve/dbgovernor/mysql.type.installed"
 
+# The operating system's own database server packages: the "distro" variant, as
+# opposed to the Governor builds (cl-MySQL*, cl-MariaDB*) and the vendors'
+# (mysql-community-server, MariaDB-server). Variants are never swapped for each other.
+DISTRO_DB_SERVERS = {
+    "mysql-server": "MySQL",
+    "mariadb-server": "MariaDB",
+}
+
 # Matches the version directory Governor puts in the cl-mysql-meta repository URL, e.g.
 # ".../mysqlmeta/cl-mariadb-11.04/$basearch/" -> ("mariadb", "11", "04").
 CLMYSQL_REPO_URL_RE = re.compile(r"cl-(mariadb|mysql|percona)-(\d+)\.(\d+)", re.IGNORECASE)
@@ -299,6 +307,18 @@ def get_clmysql_version_from_pkg():
     return "%s%s" % (name, "".join(version.split(".")[:2]))
 
 
+def target_has_module_streams():
+    """
+    Whether the target serves the Governor databases as DNF module streams.
+
+    CloudLinux 8 and 9 do: their cl-mysql-meta repositories carry modules metadata.
+    CloudLinux 10 does not - its cl-mysql-meta repomd.xml lists no "modules" data,
+    RHEL 10 dropped modularity altogether, and the cl-MySQL/cl-MariaDB packages sit
+    in the CloudLinux 10 channel as plain packages.
+    """
+    return int(get_target_major_version()) < 10
+
+
 def get_pkg_prefix(clmysql_type):
     """
     Get a Yum package prefix string from cl-mysql type.
@@ -403,9 +423,14 @@ def get_clmysql_type():
 # Repository mapping helpers
 # ---------------------------------------------------------------------------
 
-def make_pesid_repo(pesid, major_version, repoid, arch='x86_64', repo_type='rpm', channel='ga', rhui=''):
+def make_pesid_repo(pesid, major_version, repoid, arch='x86_64', repo_type='rpm', channel='ga', rhui='',
+                    distro='cloudlinux'):
     """
     PESIDRepositoryEntry factory function allowing shorter data description by providing default values.
+
+    ``distro`` became a required field of PESIDRepositoryEntry with repomap format
+    1.3.0. RepoMapDataHandler matches entries against get_source_distro_id(), which
+    is the /etc/os-release ID - 'cloudlinux' on every host this library runs on.
     """
     return PESIDRepositoryEntry(
         pesid=pesid,
@@ -414,7 +439,8 @@ def make_pesid_repo(pesid, major_version, repoid, arch='x86_64', repo_type='rpm'
         arch=arch,
         repo_type=repo_type,
         channel=channel,
-        rhui=rhui
+        rhui=rhui,
+        distro=distro
     )
 
 

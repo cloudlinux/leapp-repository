@@ -3,7 +3,7 @@ from leapp.libraries.common.config import version
 from leapp.libraries.stdlib import CalledProcessError
 
 
-class run_mocked(object):
+class run_mocked:
     def __init__(self):
         self.args = []
         self.called = 0
@@ -33,11 +33,13 @@ class run_mocked(object):
                       "port -a -t http_port_t -p udp 81",
                       "fcontext -a -f a -t httpd_sys_content_t '/web(/.*)?'",
                       "fcontext -a -f a -t cgdcbxd_exec_t '/ganesha(/.*)?'"]
+        else:
+            assert False, 'run_mocked: Called unexpected cmd not covered by test: {}'.format(self.args)
 
         return {'stdout': stdout}
 
 
-class run_mocked_fail(object):
+class run_mocked_fail:
     def __init__(self):
         self.called = 0
 
