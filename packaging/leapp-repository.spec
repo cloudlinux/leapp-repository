@@ -151,7 +151,7 @@ Requires:       leapp >= 0.17.0
 # uncompressing redhat-release package from the ISO.
 Requires:   cpio
 
-# Subpackage for managing fapolicyd rules for %{lpr_name} installed only if
+# Subpackage for managing fapolicyd rules for %%{lpr_name} installed only if
 # fapolicyd is present on the system. Not built on el7: fapolicyd starts with
 # RHEL 8, and rpm 4.11 cannot parse this boolean dependency at all - the el7
 # build would stop before a source RPM exists. utils/check-spec-platforms.py guards it.
