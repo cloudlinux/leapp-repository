@@ -75,3 +75,25 @@ def test_parse_repofile():
     repos_duplicate = [repo for repo in repofile.data if repo.repoid == 'duplicate']
     assert len(repos_duplicate) == 1  # only one instance got through
     assert repos_duplicate[0].name == 'Duplicate 2'  # and it's the latter one
+
+
+@pytest.mark.parametrize(
+    'repodirs,expected',
+    (
+        ([], '/etc/yum.repos.d'),
+        (['/etc/yum.repos.d'], '/etc/yum.repos.d'),
+        (['/etc/distro.repos.d', '/etc/yum.repos.d'], '/etc/yum.repos.d'),
+        (['/etc/yum.repos.local.d'], '/etc/yum.repos.local.d'),
+        (['/etc/b.repos.d', '/etc/a.repos.d'], '/etc/a.repos.d'),
+    ),
+)
+def test_pick_repofile_dir(repodirs, expected):
+    assert repofileutils.pick_repofile_dir(repodirs, '/etc/yum.repos.d') == expected
+
+
+def test_pick_repofile_dir_recognises_a_symlinked_default(tmpdir):
+    real = tmpdir.mkdir('real-repos.d')
+    link = tmpdir.join('yum.repos.d')
+    link.mksymlinkto(real)
+
+    assert repofileutils.pick_repofile_dir([str(real)], str(link)) == str(link)

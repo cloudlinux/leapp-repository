@@ -13,6 +13,34 @@ LEAPP_COPY_SUFFIX = "_leapp_custom.repo"
 REPOFILE_SUFFIX = ".repo"
 
 
+def get_repo_dirs():
+    """
+    Return the list of directories dnf actually scans for .repo files.
+
+    Honors a non-default ``reposdir`` (e.g. a host that relocates its repos
+    to /etc/yum.repos.local.d), so CloudLinux actors must not assume the standard
+    /etc/yum.repos.d. Falls back to the standard location if dnf cannot
+    report the configured directories (e.g. the dnf module is unavailable).
+    """
+    try:
+        repo_dirs = repofileutils.get_repodirs()
+    except Exception as e:  # dnf missing / main-config read failure
+        api.current_logger().warning(
+            'Could not determine reposdir from dnf ({}); falling back to {}'.format(e, REPO_DIR)
+        )
+        repo_dirs = []
+    return repo_dirs or [REPO_DIR]
+
+
+def get_primary_repo_dir():
+    """
+    Return the directory new .repo files should be written to so that dnf
+    will read them, by the same rule as the target userspace uses:
+    repofileutils.pick_repofile_dir().
+    """
+    return repofileutils.pick_repofile_dir(get_repo_dirs(), REPO_DIR)
+
+
 def is_rollout_repository(repofile):
     return ROLLOUT_MARKER in repofile and any(mark in repofile for mark in CL_MARKERS)
 

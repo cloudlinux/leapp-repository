@@ -70,6 +70,7 @@ PROD_CERTS_FOLDER = 'prod-certs'
 PERSISTENT_PACKAGE_CACHE_DIR = '/var/lib/leapp/persistent_package_cache'
 DEDICATED_LEAPP_PART_URL = 'https://access.redhat.com/solutions/7011704'
 FMT_LIST_SEPARATOR = '\n    - '
+DEFAULT_REPOFILE_DIR = '/etc/yum.repos.d'
 
 
 def _check_deprecated_rhsm_skip():
@@ -795,8 +796,12 @@ def _prep_repository_access(context, target_userspace):
     Prepare repository access by copying all relevant certificates and configuration files to the userspace
     """
     target_etc = os.path.join(target_userspace, 'etc')
-    target_yum_repos_d = os.path.join(target_etc, 'yum.repos.d')
-    backup_yum_repos_d = os.path.join(target_etc, 'yum.repos.d.backup')
+    # The userspace inherits the host's dnf configuration, so its repository
+    # files have to live wherever that configuration points - see
+    # _get_container_repofile_dir().
+    container_repofile_dir = _get_container_repofile_dir()
+    target_yum_repos_d = os.path.join(target_userspace, container_repofile_dir.lstrip('/'))
+    backup_yum_repos_d = target_yum_repos_d + '.backup'
 
     _copy_certificates(context, target_userspace)
     # NOTE(dkubek): context.call(['update-ca-trust']) seems to not be working.
@@ -843,9 +848,15 @@ def _prep_repository_access(context, target_userspace):
     # #     RHUI clients are being installed in both scratch and target containers, users can request their package
     # #     to be installed into target userspace that might add some repos to yum.repos.d that are not in scratch.
 
+    # The freshly installed userspace only contains the distro default
+    # directory, so when the configured one differs it does not exist yet and
+    # the move below would fail.
+    if not os.path.isdir(target_yum_repos_d):
+        os.makedirs(target_yum_repos_d)
+
     # Detect files that are owned by some RPM - these cannot be deleted
     with mounting.NspawnActions(base_dir=target_userspace) as target_context:
-        files_owned_by_rpms = _get_files_owned_by_rpms(target_context, '/etc/yum.repos.d')
+        files_owned_by_rpms = _get_files_owned_by_rpms(target_context, container_repofile_dir)
 
     # Backup the target yum.repos.d so we can always copy the files installed by some RPM back into yum.repos.d
     # when we modify it
@@ -853,7 +864,7 @@ def _prep_repository_access(context, target_userspace):
 
     # Copy the yum.repos.d from scratch - preserve any custom repositories. No need to clean-up old RHUI clients,
     # we swap them for the new RHUI client in scratch (so the old one is not installed).
-    context.copytree_from('/etc/yum.repos.d', target_yum_repos_d)
+    context.copytree_from(container_repofile_dir, target_yum_repos_d)
 
     # Copy back files owned by some RPM
     for fname in files_owned_by_rpms:
@@ -1164,11 +1175,37 @@ def _get_distro_available_repoids(context, indata):
               Exception: On CS8->CS9 and AL8->AL9 there are no distro-provided
               repoids as the repofile layout and urls are different
     Conversions: Only custom repos - no distro repoids (all distros)
+    Relocated reposdir: the distro repofiles are installed into
+              /etc/yum.repos.d, which such a host does not read, so none are
+              found. The basic repositories must then come from the custom
+              ones - gather_target_repositories() checks for them there.
 
     :return: A set of repoids provided by distribution
     :rtype: set[str]
     """
     distro_repoids = distro.get_target_distro_repoids(context)
+
+    if _distro_base_repos_required():
+        if not distro_repoids and not _distro_repofiles_are_read():
+            api.current_logger().info(
+                'The distribution repository files are not read on this system: its reposdir does not'
+                ' include {}. Expecting the basic repositories among the custom target repositories.'
+                .format(DEFAULT_REPOFILE_DIR)
+            )
+        else:
+            _inhibit_if_no_base_repos(distro_repoids)
+
+    if indata and indata.rhui_info:
+        rhui_repoids = _get_rhui_available_repoids(context, indata.rhui_info)
+        distro_repoids.extend(rhui_repoids)
+
+    return set(distro_repoids)
+
+
+def _distro_base_repos_required():
+    """
+    Whether the distribution has to provide the basic (BaseOS, AppStream) repositories.
+    """
     target_distro = get_target_distro_id()
     rhel_and_rhsm = target_distro == 'rhel' and not rhsm.skip_rhsm()
     is_source_cs8 = (
@@ -1177,20 +1214,12 @@ def _get_distro_available_repoids(context, indata):
     is_source_almalinux8 = (
         get_source_distro_id() == "almalinux" and get_source_major_version() == '8'
     )
-
-    if (
+    return (
         not is_conversion()  # conversions only work with custom repos
         and not (is_source_cs8 # there are no distro_repoids on CS8->CS9
         or is_source_almalinux8)  # there are no distro_repoids on AL8->AL9
         and (target_distro != "rhel" or rhel_and_rhsm)
-    ):
-        _inhibit_if_no_base_repos(distro_repoids)
-
-    if indata and indata.rhui_info:
-        rhui_repoids = _get_rhui_available_repoids(context, indata.rhui_info)
-        distro_repoids.extend(rhui_repoids)
-
-    return set(distro_repoids)
+    )
 
 
 @suppress_deprecation(RHELTargetRepository)  # member of TargetRepositories
@@ -1318,23 +1347,52 @@ def gather_target_repositories(context, indata):
             ))
         ])
         raise StopActorExecution()
+    if not distro_repoids and _distro_base_repos_required() and not _distro_repofiles_are_read():
+        # See _get_distro_available_repoids(): here the basic repositories have
+        # to be among the custom ones, e.g. derived from a host's own mirror.
+        _inhibit_if_no_base_repos([repoid.lower() for repoid in target_repoids])
     return target_repoids
+
+
+def _get_container_repofile_dir():
+    """
+    Return the directory the container reads repository files from.
+
+    Normally /etc/yum.repos.d, but the container inherits the host's dnf
+    configuration, so a host that relocates reposdir makes that directory
+    invisible: files written there are found neither by
+    _get_all_available_repoids(), which scans the configured reposdir, nor by
+    the dnf calls enabling the target repositories. The upgrade then stops with
+    "There are no enabled target repositories".
+
+    :rtype: str
+    """
+    return repofileutils.pick_repofile_dir(repofileutils.get_repodirs(), DEFAULT_REPOFILE_DIR)
+
+
+def _distro_repofiles_are_read():
+    """
+    Whether dnf reads the directory the distribution repofiles are installed into.
+    """
+    return _get_container_repofile_dir() == DEFAULT_REPOFILE_DIR
 
 
 def _install_custom_repofiles(context, custom_repofiles):
     """
     Install the required custom repository files into the container.
 
-    The repository files are copied from the host into the /etc/yum.repos.d
-    directory into the container.
+    The repository files are copied from the host into the directory the
+    container's dnf reads repository files from - usually /etc/yum.repos.d,
+    see _get_container_repofile_dir().
 
     :param context: the container where the repofiles should be copied
     :type context: mounting.IsolatedActions class
     :param custom_repofiles: list of custom repo files
     :type custom_repofiles: List(CustomTargetRepositoryFile)
     """
+    repofile_dir = _get_container_repofile_dir()
     for rfile in custom_repofiles:
-        _dst_path = os.path.join('/etc/yum.repos.d', os.path.basename(rfile.file))
+        _dst_path = os.path.join(repofile_dir, os.path.basename(rfile.file))
         api.current_logger().debug("Copying {} to {}".format(rfile.file, _dst_path))
         context.copy_to(rfile.file, _dst_path)
 

@@ -1,21 +1,9 @@
-from __future__ import print_function
-import os
-import fileinput
-
 from leapp.actors import Actor
 from leapp.tags import ApplicationsPhaseTag, IPUWorkflowTag
 from leapp import reporting
 from leapp.reporting import Report
+from leapp.libraries.actor import replacerpmnewconfigs
 from leapp.libraries.common.cllaunch import run_on_cloudlinux
-from leapp.libraries.common.backup import backup_and_remove, LEAPP_BACKUP_SUFFIX
-
-REPO_DIR = '/etc/yum.repos.d'
-# These markers are used to identify which repository files should be directly replaced with new versions.
-REPO_DELETE_MARKERS = ['cloudlinux', 'imunify']
-# These markers are used to identify which repository files should be replaced with new versions and backed up.
-REPO_BACKUP_MARKERS = []
-# This suffix is used to identify .rpmnew files that appear after package upgrade.
-RPMNEW = '.rpmnew'
 
 
 class ReplaceRpmnewConfigs(Actor):
@@ -30,39 +18,7 @@ class ReplaceRpmnewConfigs(Actor):
 
     @run_on_cloudlinux
     def process(self):
-        deleted_repofiles = []
-        renamed_repofiles = []
-
-        for rpmnew_filename in os.listdir(REPO_DIR):
-            if any(mark in rpmnew_filename for mark in REPO_DELETE_MARKERS) and rpmnew_filename.endswith(RPMNEW):
-                main_reponame = rpmnew_filename[:-len(RPMNEW)]
-                main_file_path = os.path.join(REPO_DIR, main_reponame)
-                rpmnew_file_path = os.path.join(REPO_DIR, rpmnew_filename)
-
-                os.unlink(main_file_path)
-                os.rename(rpmnew_file_path, main_file_path)
-                deleted_repofiles.append(main_reponame)
-                self.log.debug('Yum repofile replaced: {}'.format(main_file_path))
-
-            if any(mark in rpmnew_filename for mark in REPO_BACKUP_MARKERS) and rpmnew_filename.endswith(RPMNEW):
-                main_reponame = rpmnew_filename[:-len(RPMNEW)]
-                main_file_path = os.path.join(REPO_DIR, main_reponame)
-                rpmnew_file_path = os.path.join(REPO_DIR, rpmnew_filename)
-
-                backup_and_remove(main_file_path)
-                os.rename(rpmnew_file_path, main_file_path)
-                renamed_repofiles.append(main_reponame)
-                self.log.debug('Yum repofile replaced with backup: {}'.format(main_file_path))
-
-        # Disable any old repositories.
-        for repofile_name in os.listdir(REPO_DIR):
-            if LEAPP_BACKUP_SUFFIX in repofile_name:
-                repofile_path = os.path.join(REPO_DIR, repofile_name)
-                for line in fileinput.input(repofile_path, inplace=True):
-                    if line.startswith('enabled'):
-                        print("enabled = 0")
-                    else:
-                        print(line, end='')
+        deleted_repofiles, renamed_repofiles = replacerpmnewconfigs.replace_rpmnew_configs()
 
         if renamed_repofiles or deleted_repofiles:
             deleted_string = '\n'.join(['{}'.format(repofile_name) for repofile_name in deleted_repofiles])

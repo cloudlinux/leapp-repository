@@ -4,9 +4,9 @@ import shutil
 import logging
 
 from leapp.libraries.stdlib import api
+from leapp.libraries.common import cl_repofileutils
 
 CUSTOM_REPOS_FOLDER = 'custom-repos'
-REPO_ROOT_PATH = "/etc/yum.repos.d"
 
 
 def add_custom(log):
@@ -18,9 +18,13 @@ def add_custom(log):
     if not repofiles or not custom_repo_dir:
         return
 
+    # Write into the directory dnf actually reads (honors a non-default
+    # reposdir such as /etc/yum.repos.local.d).
+    repo_root_path = cl_repofileutils.get_primary_repo_dir()
+
     for repofile in repofiles:
         full_repo_path = os.path.join(custom_repo_dir, repofile)
 
-        log.debug("Copying repo file {} to {}".format(repofile, REPO_ROOT_PATH))
+        log.debug("Copying repo file {} to {}".format(repofile, repo_root_path))
 
-        shutil.copy(full_repo_path, REPO_ROOT_PATH)
+        shutil.copy(full_repo_path, repo_root_path)
