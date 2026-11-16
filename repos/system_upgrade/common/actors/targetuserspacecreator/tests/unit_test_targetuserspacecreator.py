@@ -1728,3 +1728,56 @@ def test_install_custom_repofiles_follows_reposdir(monkeypatch, repodirs, expect
         os.path.join(expected_dir, 'custom.repo'),
         os.path.join(expected_dir, 'epel.repo'),
     ]
+
+
+class _PrepRecordingContext(object):
+    def __init__(self):
+        self.copied_trees = []
+
+    def copytree_from(self, src, dst):
+        self.copied_trees.append((src, dst))
+
+    def copy_from(self, src, dst):
+        pass
+
+
+class _NoopNspawn(object):
+    def __init__(self, base_dir):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+@pytest.mark.parametrize('repodirs,repofile_dir', (
+    (['/etc/yum.repos.d'], '/etc/yum.repos.d'),
+    (['/etc/yum.repos.local.d'], '/etc/yum.repos.local.d'),
+))
+def test_prep_repository_access_moves_the_repofile_dir_dnf_reads(monkeypatch, tmpdir, repodirs, repofile_dir):
+    """The target userspace gets the container's repofiles in the directory its
+    dnf reads. On a relocated host that directory does not exist in the freshly
+    installed userspace, so it has to be created before it is backed up."""
+    target = tmpdir.mkdir('target')
+    # A freshly installed userspace has the distribution's default directory.
+    target.mkdir('etc').mkdir('yum.repos.d')
+    target = str(target)
+    commands = []
+    monkeypatch.setattr(userspacegen.api, 'current_logger', logger_mocked())
+    monkeypatch.setattr(repofileutils, 'get_repodirs', lambda: list(repodirs))
+    monkeypatch.setattr(userspacegen, '_copy_certificates', lambda context, target_userspace: None)
+    monkeypatch.setattr(userspacegen.rhsm, 'skip_rhsm', lambda: True)
+    monkeypatch.setattr(userspacegen.mounting, 'NspawnActions', _NoopNspawn)
+    monkeypatch.setattr(userspacegen, '_get_files_owned_by_rpms', lambda context, dirpath: [])
+    monkeypatch.setattr(userspacegen, 'run', lambda cmd, **kwargs: commands.append(cmd))
+    context = _PrepRecordingContext()
+
+    userspacegen._prep_repository_access(context, target)
+
+    target_dir = os.path.join(target, repofile_dir.lstrip('/'))
+    assert os.path.isdir(target_dir)
+    assert ['mv', target_dir, target_dir + '.backup'] in commands
+    assert context.copied_trees == [(repofile_dir, target_dir)]
+    assert ['rm', '-rf', target_dir + '.backup'] in commands
