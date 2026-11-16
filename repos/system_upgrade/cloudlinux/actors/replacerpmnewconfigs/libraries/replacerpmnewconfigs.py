@@ -14,9 +14,23 @@ REPO_BACKUP_MARKERS = []
 RPMNEW = '.rpmnew'
 
 
+def _scanned_dirs():
+    """
+    /etc/yum.repos.d and every directory dnf reads.
+
+    rpm writes an .rpmnew beside the packaged path, which for repofiles is
+    /etc/yum.repos.d even on a host whose reposdir leaves that directory out,
+    so it is scanned whatever the configuration. A directory reached twice
+    (configured as well, or symlinked) is harmless: the second visit finds
+    nothing left to do.
+    """
+    return [cl_repofileutils.REPO_DIR] + cl_repofileutils.get_repo_dirs()
+
+
 def replace_rpmnew_configs():
     """
-    Apply CloudLinux-related repofile .rpmnew files in every directory dnf reads.
+    Apply CloudLinux-related repofile .rpmnew files in /etc/yum.repos.d and in
+    every directory dnf reads.
 
     :return: names of the repofiles replaced outright, and of those replaced
              after being backed up
@@ -25,7 +39,7 @@ def replace_rpmnew_configs():
     deleted_repofiles = []
     renamed_repofiles = []
 
-    for repo_dir in cl_repofileutils.get_repo_dirs():
+    for repo_dir in _scanned_dirs():
         if not os.path.isdir(repo_dir):
             continue
 
