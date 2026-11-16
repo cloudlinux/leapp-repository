@@ -1681,6 +1681,21 @@ class _CopyToRecordingContext(object):
         self.copied.append((src, dst))
 
 
+def test_container_repofile_dir_recognises_a_symlinked_default(monkeypatch, tmpdir):
+    """get_repodirs() resolves symlinks, so on a host whose /etc/yum.repos.d is
+    a symlink it reports the target path. That is still the default directory:
+    the repofiles belong at /etc/yum.repos.d, which the target userspace reads,
+    not at the resolved path, which it does not."""
+    real = tmpdir.mkdir('real-repos.d')
+    link = tmpdir.join('yum.repos.d')
+    link.mksymlinkto(real)
+    monkeypatch.setattr(userspacegen, 'DEFAULT_REPOFILE_DIR', str(link))
+    monkeypatch.setattr(repofileutils, 'get_repodirs', lambda: [os.path.realpath(str(link))])
+
+    assert userspacegen._get_container_repofile_dir() == str(link)
+    assert userspacegen._distro_repofiles_are_read()
+
+
 @pytest.mark.parametrize(
     'repodirs,expected_dir',
     (

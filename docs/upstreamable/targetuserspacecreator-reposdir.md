@@ -52,10 +52,12 @@ a `Copying ... to /etc/yum.repos.d/...` line, then a
 ## The fix
 
 Add `_get_container_repofile_dir()`, which returns the directory the
-container's dnf actually reads - `/etc/yum.repos.d` when that is among the
-configured `reposdir` entries (so standard systems are unaffected), otherwise
-the configured one, sorted for a stable pick because `get_repodirs()` builds
-its result from a set. Use it in `_install_custom_repofiles()` and throughout
+container's dnf actually reads. The rule lives in
+`repofileutils.pick_repofile_dir()`: `/etc/yum.repos.d` when that is among the
+configured `reposdir` entries (so standard systems are unaffected), compared by
+its resolved path as well because `get_repodirs()` resolves symlinks; otherwise
+the first configured one in sorted order, because `get_repodirs()` builds its
+result from a set. Use it in `_install_custom_repofiles()` and throughout
 `_prep_repository_access()`.
 
 `_prep_repository_access()` additionally has to create the directory in the
