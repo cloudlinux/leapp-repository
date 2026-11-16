@@ -1258,6 +1258,74 @@ def test__get_distro_available_repoids_nobaserepos_inhibit(
         assert reporting.Groups.INHIBITOR in report["groups"]
 
 
+def _mock_upgrade_without_distro_repoids(monkeypatch, repodirs):
+    monkeypatch.setattr(
+        userspacegen.api,
+        "current_actor",
+        CurrentActorMocked(src_distro="cloudlinux", dst_distro="cloudlinux", src_ver="8.10", dst_ver="9.8"),
+    )
+    monkeypatch.setattr(userspacegen.api.current_actor(), 'produce', produce_mocked())
+    monkeypatch.setattr(reporting, "create_report", create_report_mocked())
+    monkeypatch.setattr(rhsm, 'skip_rhsm', lambda: True)
+    monkeypatch.setattr(distro, 'get_target_distro_repoids', lambda ctx: [])
+    monkeypatch.setattr(repofileutils, 'get_repodirs', lambda: list(repodirs))
+
+
+def test__get_distro_available_repoids_relocated_reposdir_does_not_inhibit(monkeypatch):
+    """
+    The target release package installs the distribution repofiles into
+    /etc/yum.repos.d. On a host whose reposdir leaves that directory out they
+    cannot be active, so their absence is the host's own configuration and the
+    basic-repository check belongs to the custom repositories instead - see
+    gather_target_repositories.
+    """
+    _mock_upgrade_without_distro_repoids(monkeypatch, ['/etc/yum.repos.local.d'])
+    indata = testInData(_PACKAGES_MSGS, None, None, _XFS_MSG, _STORAGEINFO_MSG, None)
+
+    assert userspacegen._get_distro_available_repoids(None, indata) == set()
+    assert not reporting.create_report.called
+
+
+def test__get_distro_available_repoids_default_reposdir_still_inhibits(monkeypatch):
+    _mock_upgrade_without_distro_repoids(monkeypatch, ['/etc/yum.repos.d'])
+    indata = testInData(_PACKAGES_MSGS, None, None, _XFS_MSG, _STORAGEINFO_MSG, None)
+
+    with pytest.raises(StopActorExecution):
+        userspacegen._get_distro_available_repoids(None, indata)
+    assert reporting.create_report.called == 1
+    assert reporting.create_report.reports[0]['title'] == 'Cannot find required basic RHEL target repositories.'
+
+
+@pytest.mark.parametrize(
+    "custom_repoids, inhibited",
+    (
+        # What derive_internal_mirror_repos produces from a host on its own mirror.
+        (['almalinux-BaseOS-9', 'almalinux-AppStream-9', 'cloudlinux-os-9'], False),
+        (['cloudlinux-os-9'], True),
+        (['almalinux-BaseOS-9', 'cloudlinux-os-9'], True),
+        (['almalinux-AppStream-9', 'cloudlinux-os-9'], True),
+    ),
+)
+@suppress_deprecation(models.RHELTargetRepository)
+def test_gather_target_repositories_relocated_reposdir_checks_custom_repos(monkeypatch, custom_repoids, inhibited):
+    _mock_upgrade_without_distro_repoids(monkeypatch, ['/etc/yum.repos.local.d'])
+    monkeypatch.setattr(userspacegen, '_get_all_available_repoids', lambda ctx: set(custom_repoids))
+    monkeypatch.setattr(userspacegen.api, 'consume', lambda x: iter([models.TargetRepositories(
+        rhel_repos=[],
+        distro_repos=[],
+        custom_repos=[models.CustomTargetRepository(repoid=repoid) for repoid in custom_repoids])]))
+    indata = testInData(_PACKAGES_MSGS, None, None, _XFS_MSG, _STORAGEINFO_MSG, None)
+
+    if inhibited:
+        with pytest.raises(StopActorExecution):
+            userspacegen.gather_target_repositories(None, indata)
+        assert reporting.create_report.called == 1
+        assert reporting.create_report.reports[0]['title'] == 'Cannot find required basic RHEL target repositories.'
+    else:
+        assert sorted(userspacegen.gather_target_repositories(None, indata)) == sorted(custom_repoids)
+        assert not reporting.create_report.called
+
+
 def mocked_consume_data():
     packages = {'dnf', 'dnf-command(config-manager)', 'pkgA', 'pkgB'}
     rhsm_info = _RHSMINFO_MSG
@@ -1601,3 +1669,115 @@ def test_localinstall_unchanged_for_targets_providing_their_own_system_release(m
         assert '--enablerepo' not in cmd
         assert '--disablerepo' not in cmd
         assert cmd[-1] == userspacegen._get_cloudlinux_release_urls(major)[0]
+
+
+class _CopyToRecordingContext(object):
+    """Records copy_to() destinations."""
+
+    def __init__(self):
+        self.copied = []
+
+    def copy_to(self, src, dst):
+        self.copied.append((src, dst))
+
+
+def test_container_repofile_dir_recognises_a_symlinked_default(monkeypatch, tmpdir):
+    """get_repodirs() resolves symlinks, so on a host whose /etc/yum.repos.d is
+    a symlink it reports the target path. That is still the default directory:
+    the repofiles belong at /etc/yum.repos.d, which the target userspace reads,
+    not at the resolved path, which it does not."""
+    real = tmpdir.mkdir('real-repos.d')
+    link = tmpdir.join('yum.repos.d')
+    link.mksymlinkto(real)
+    monkeypatch.setattr(userspacegen, 'DEFAULT_REPOFILE_DIR', str(link))
+    monkeypatch.setattr(repofileutils, 'get_repodirs', lambda: [os.path.realpath(str(link))])
+
+    assert userspacegen._get_container_repofile_dir() == str(link)
+    assert userspacegen._distro_repofiles_are_read()
+
+
+@pytest.mark.parametrize(
+    'repodirs,expected_dir',
+    (
+        # Standard system: unchanged behaviour.
+        (['/etc/yum.repos.d'], '/etc/yum.repos.d'),
+        # dnf reports several dirs including the default - prefer the default.
+        (['/etc/distro.repos.d', '/etc/yum.repos.d'], '/etc/yum.repos.d'),
+        # Relocated reposdir: the repofiles must follow it, otherwise neither
+        # _get_all_available_repoids() nor the dnf calls enabling the target
+        # repositories can see them and the upgrade stops with
+        # "There are no enabled target repositories".
+        (['/etc/yum.repos.local.d'], '/etc/yum.repos.local.d'),
+        # Deterministic pick when several non-default dirs are configured.
+        (['/etc/b.repos.d', '/etc/a.repos.d'], '/etc/a.repos.d'),
+        # dnf reported nothing usable - fall back to the default.
+        ([], '/etc/yum.repos.d'),
+    ),
+)
+def test_install_custom_repofiles_follows_reposdir(monkeypatch, repodirs, expected_dir):
+    monkeypatch.setattr(userspacegen.api, 'current_logger', logger_mocked())
+    monkeypatch.setattr(repofileutils, 'get_repodirs', lambda: list(repodirs))
+
+    context = _CopyToRecordingContext()
+    userspacegen._install_custom_repofiles(context, [
+        models.CustomTargetRepositoryFile(file='/var/lib/leapp/yum_custom_repofiles/custom.repo'),
+        models.CustomTargetRepositoryFile(file='/etc/leapp/files/vendors.d/epel.repo'),
+    ])
+
+    assert [dst for _, dst in context.copied] == [
+        os.path.join(expected_dir, 'custom.repo'),
+        os.path.join(expected_dir, 'epel.repo'),
+    ]
+
+
+class _PrepRecordingContext(object):
+    def __init__(self):
+        self.copied_trees = []
+
+    def copytree_from(self, src, dst):
+        self.copied_trees.append((src, dst))
+
+    def copy_from(self, src, dst):
+        pass
+
+
+class _NoopNspawn(object):
+    def __init__(self, base_dir):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+@pytest.mark.parametrize('repodirs,repofile_dir', (
+    (['/etc/yum.repos.d'], '/etc/yum.repos.d'),
+    (['/etc/yum.repos.local.d'], '/etc/yum.repos.local.d'),
+))
+def test_prep_repository_access_moves_the_repofile_dir_dnf_reads(monkeypatch, tmpdir, repodirs, repofile_dir):
+    """The target userspace gets the container's repofiles in the directory its
+    dnf reads. On a relocated host that directory does not exist in the freshly
+    installed userspace, so it has to be created before it is backed up."""
+    target = tmpdir.mkdir('target')
+    # A freshly installed userspace has the distribution's default directory.
+    target.mkdir('etc').mkdir('yum.repos.d')
+    target = str(target)
+    commands = []
+    monkeypatch.setattr(userspacegen.api, 'current_logger', logger_mocked())
+    monkeypatch.setattr(repofileutils, 'get_repodirs', lambda: list(repodirs))
+    monkeypatch.setattr(userspacegen, '_copy_certificates', lambda context, target_userspace: None)
+    monkeypatch.setattr(userspacegen.rhsm, 'skip_rhsm', lambda: True)
+    monkeypatch.setattr(userspacegen.mounting, 'NspawnActions', _NoopNspawn)
+    monkeypatch.setattr(userspacegen, '_get_files_owned_by_rpms', lambda context, dirpath: [])
+    monkeypatch.setattr(userspacegen, 'run', lambda cmd, **kwargs: commands.append(cmd))
+    context = _PrepRecordingContext()
+
+    userspacegen._prep_repository_access(context, target)
+
+    target_dir = os.path.join(target, repofile_dir.lstrip('/'))
+    assert os.path.isdir(target_dir)
+    assert ['mv', target_dir, target_dir + '.backup'] in commands
+    assert context.copied_trees == [(repofile_dir, target_dir)]
+    assert ['rm', '-rf', target_dir + '.backup'] in commands
