@@ -126,10 +126,53 @@ def test_target_repoid_is_suffixed_to_avoid_clashing_with_source(monkeypatch, pr
     assert _custom_repos(produced)[0].repoid == 'cloudlinux-os-9'
 
 
-def test_derived_repo_is_enabled_even_if_source_repo_is_disabled_elsewhere(monkeypatch, produced):
-    _run(monkeypatch, [_repo('cloudlinux-os', MIRROR_REPOS['cloudlinux-os'])])
+def _run_files(monkeypatch, files, target_major='9'):
+    """Like _run, but with the repositories spread over several repo files."""
+    facts = RepositoriesFacts(repositories=[RepositoryFile(file=path, data=repos) for path, repos in files])
+    monkeypatch.setattr(deriveinternalmirrorrepos.api, 'consume', lambda model: iter([facts]))
+    monkeypatch.setattr(deriveinternalmirrorrepos, 'get_target_major_version', lambda: target_major)
+    deriveinternalmirrorrepos.process()
 
-    assert _custom_repos(produced)[0].enabled is True
+
+def test_derived_repo_is_enabled_even_if_source_repo_is_disabled_elsewhere(monkeypatch, produced):
+    """A repoid that one file disables and another enables is derived from the
+    enabled definition, once, and the derived repository is enabled."""
+    _run_files(monkeypatch, [
+        ('/etc/yum.repos.local.d/a.repo', [_repo('cloudlinux-os', MIRROR + '/old/$releasever/os', enabled=False)]),
+        ('/etc/yum.repos.local.d/b.repo', [_repo('cloudlinux-os', MIRROR_REPOS['cloudlinux-os'])]),
+    ])
+
+    repos = _custom_repos(produced)
+    assert [(r.repoid, r.baseurl, r.enabled) for r in repos] == [
+        ('cloudlinux-os-9', MIRROR + '/cloudlinux/9/$basearch/os', True)]
+
+
+def test_a_repoid_defined_twice_is_derived_once(monkeypatch, produced):
+    """dnf only warns about a repoid defined in two files, and leapp inhibits on
+    it later (targetuserspacecreator). The actor must not crash before that:
+    one target repository, one section in the repofile, and a warning."""
+    warnings = []
+
+    class _Logger(object):
+        def debug(self, *a, **k):
+            pass
+
+        def warning(self, msg, *a, **k):
+            warnings.append(msg)
+
+    monkeypatch.setattr(deriveinternalmirrorrepos.api, 'current_logger', lambda: _Logger())
+    _run_files(monkeypatch, [
+        ('/etc/yum.repos.local.d/a.repo', [_repo('cloudlinux-os', MIRROR_REPOS['cloudlinux-os'])]),
+        ('/etc/yum.repos.local.d/b.repo', [_repo('cloudlinux-os', MIRROR + '/other/$releasever/os')]),
+    ])
+
+    repos = _custom_repos(produced)
+    assert [(r.repoid, r.baseurl) for r in repos] == [('cloudlinux-os-9', MIRROR + '/cloudlinux/9/$basearch/os')]
+    repofiles = [m for m in produced if isinstance(m, CustomTargetRepositoryFile)]
+    parser = configparser.ConfigParser()
+    parser.read(repofiles[0].file)
+    assert parser.sections() == ['cloudlinux-os-9']
+    assert any('cloudlinux-os' in w for w in warnings)
 
 
 def test_a_repofile_is_produced_so_the_container_can_see_the_repos(monkeypatch, produced):

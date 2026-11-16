@@ -169,11 +169,24 @@ def process():
     target_major = get_target_major_version()
 
     derived = []
+    seen = set()
     for facts in api.consume(RepositoriesFacts):
         for repo_file in facts.repositories:
             for repo in repo_file.data:
-                if _is_derivable(repo):
-                    derived.append(_derive_repo(repo, target_major))
+                if not _is_derivable(repo):
+                    continue
+                if repo.repoid in seen:
+                    # dnf only warns about a repoid defined twice, and
+                    # targetuserspacecreator inhibits on it with its own report.
+                    # Keep one target repository so this actor gets that far.
+                    api.current_logger().warning(
+                        'Repository {} is defined more than once; deriving its target'
+                        ' repository from the first definition only (ignoring {})'.format(
+                            repo.repoid, repo_file.file)
+                    )
+                    continue
+                seen.add(repo.repoid)
+                derived.append(_derive_repo(repo, target_major))
 
     if not derived:
         # Not an internal-mirror system - leave the standard mapping alone.
