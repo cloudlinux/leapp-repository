@@ -101,6 +101,26 @@ def get_repodirs():
         return list({os.path.realpath(d) for d in base.conf.reposdir if os.path.isdir(d)})
 
 
+def pick_repofile_dir(repodirs, default):
+    """
+    Choose the directory to write repository files into so that dnf reads them.
+
+    :param repodirs: the directories dnf reads, as get_repodirs() reports them:
+        resolved paths, in no particular order
+    :param default: the distribution's standard directory (/etc/yum.repos.d)
+
+    The default wins whenever dnf reads it. It is compared by its resolved path
+    too, since get_repodirs() resolves symlinks, and returned under its own
+    name. Otherwise the first directory in sorted order, so that the pick does
+    not depend on set ordering. With nothing reported, the default.
+
+    :rtype: str
+    """
+    if not repodirs or default in repodirs or os.path.realpath(default) in repodirs:
+        return default
+    return sorted(repodirs)[0]
+
+
 def get_parsed_repofiles(context=mounting.NotIsolatedActions(base_dir='/')):
     """
     Scan all repositories on the system.

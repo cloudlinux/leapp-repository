@@ -1367,11 +1367,7 @@ def _get_container_repofile_dir():
 
     :rtype: str
     """
-    repodirs = repofileutils.get_repodirs()
-    if not repodirs or DEFAULT_REPOFILE_DIR in repodirs:
-        return DEFAULT_REPOFILE_DIR
-    # get_repodirs() builds its result from a set, so sort for a stable pick.
-    return sorted(repodirs)[0]
+    return repofileutils.pick_repofile_dir(repofileutils.get_repodirs(), DEFAULT_REPOFILE_DIR)
 
 
 def _distro_repofiles_are_read():

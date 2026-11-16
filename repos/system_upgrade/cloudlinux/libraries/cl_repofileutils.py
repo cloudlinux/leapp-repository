@@ -35,9 +35,10 @@ def get_repo_dirs():
 def get_primary_repo_dir():
     """
     Return the directory new .repo files should be written to so that dnf
-    will read them: the first configured reposdir (the default when unset).
+    will read them, by the same rule as the target userspace uses:
+    repofileutils.pick_repofile_dir().
     """
-    return get_repo_dirs()[0]
+    return repofileutils.pick_repofile_dir(get_repo_dirs(), REPO_DIR)
 
 
 def is_rollout_repository(repofile):
