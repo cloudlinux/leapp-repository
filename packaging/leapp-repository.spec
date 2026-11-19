@@ -52,7 +52,7 @@ py2_byte_compile "%1" "%2"}
 
 Name:           leapp-repository
 Version:        0.24.0
-Release:        1%{?dist}.cloudlinux
+Release:        2%{?dist}.cloudlinux
 Summary:        Repositories for leapp
 
 License:        ASL 2.0
@@ -377,6 +377,9 @@ fi
 
 # DO NOT TOUCH SECTION BELOW IN UPSTREAM
 %changelog
+* Thu Nov 19 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.24.0-2.cloudlinux
+- Adjust packaging semantics
+
 * Fri Sep 18 2026 Roman Prilipskii <rprilipskii@cloudlinux.com> - 0.24.0-1.cloudlinux
 - Merge AlmaLinux ELevate 0.24.0, which brings the el9toel10 repository and two years of upstream work in the shared system_upgrade/common code
 - CLOS-7025: Improve CageFS handling after the upgrade
